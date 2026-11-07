@@ -134,6 +134,13 @@ Two checks look at a resolved URL before a player gets it, both in `infrastructu
 - A resolver without a check of its own sets `needs_playback_check = True` (SuperVideo), and the registry checks its streams with `stremio.verify_streams` off too.
 - The content-type probe's answers are not checked again, since the probe has looked at the response already.
 
+A resolver whose signed HLS links expire while their playlists still answer sets `probes_hls_segment = True` (StreamUp, filmpalast's hoster), and with `stremio.verify_hls_segment`, the default, the registry asks for one segment of each of its HLS streams (`segment_is_gone()`):
+
+- It walks the master playlist to its first variant and the media playlist to its first segment, then sends a `Range: bytes=0-4095` `GET` with the playback headers and the player's `User-Agent`. A segment URL without a query takes the stream URL's, as the HLS proxy sends it.
+- The walk, with its one segment, ends within 4 s. The probes of the candidates run in parallel, each inside its own resolution.
+- A 403, 404 or 410 on the segment makes the stream unplayable: it logs `hoster_resolve_unplayable` and `hls_segment_probe_gone` (with the CDN's domain and the status), counts against the circuit breaker, and is not cached, since the next lookup may get a fresh link.
+- Every other result keeps the stream (fail open): a timeout, a network error (`hls_segment_probe_unread`), another status, a playlist that is gone or lists no segment, or a bound that ends the walk.
+
 A playable stream keeps what the checked bytes tell (`PlaybackCheck`):
 
 - The largest `RESOLUTION` of an HLS master playlist's variants gives the quality class (`quality_from_resolution()`, by width or height, whichever gives the higher class; a width within 5 % of the class's counts, so a cropped 1248x520 is 720p), when the resolver named no quality or a lower one.
@@ -321,6 +328,7 @@ Its strategies, in order:
 
 - The resolve bound is `http.timeout_resolve_seconds` ([HTTP](../reference/configuration.md#http)).
 - The playback check of every stream is `stremio.verify_streams` ([Stremio](../reference/configuration.md#stremio)).
+- The segment probe of StreamUp's HLS streams is `stremio.verify_hls_segment` (same section).
 - The snapshot lives in the cache backend ([Cache](../reference/configuration.md#cache)).
 - The stealth browser's settings are in [Browser and challenges](browser-and-challenges.md#configuration).
 

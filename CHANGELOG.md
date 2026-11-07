@@ -6,6 +6,12 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Added: A StreamUp HLS Stream Must Answer Its First Segment
+
+- A signed StreamUp (filmpalast) HLS link can expire while its playlists still answer, so the player opened a stream that failed at its first segment. With the new setting `stremio.verify_hls_segment` (default on) the registry walks the playlists to one segment and asks for its first bytes (`segment_is_gone()`, 4 s in total, in parallel for all candidates, as part of each resolution). A 403, 404 or 410 drops the stream (not cached); a timeout, a network error or any other status keeps it. Streams of other hosters are not probed.
+- Docs: `hoster-resolvers.md` (CDN checks, configuration), `stremio-addon.md`, `README.md`, `configuration.md` regenerated.
+- Tests: `test_hls_segment_check.py` (404, 403 and 410 drop; 200, 206, 500, timeout and network error keep; setting off; other hosters untouched; the playlist walk; the 4 s bound).
+
 ### Fixed: A Kept `/play` Stream Object of a Proxied File Plays Through the File Proxy
 
 - A stream object the player kept with a `/play` URL (Continue Watching, the next episode's autoplay) redirected an address-bound or idle-reset file to its CDN, past the file proxy and its resumes, also after a new resolution had stamped the flag. `/play` now redirects such a file to `/api/v1/stremio/proxy/<id>/file`: a stored link with the flag at once, a link stored before the flag once its new resolution carries it (a player's own link for a client-bound hoster). Other files keep the redirect to the CDN.

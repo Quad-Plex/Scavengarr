@@ -273,6 +273,7 @@ The streams of one hoster and language resolve in rank order: the next one only 
 A better-ranked link that arrives later resolves too, and each URL resolves once.
 A link that better ones push out of the top `stremio.max_probe_count` is cancelled, and its slot frees.
 With `stremio.verify_streams` every resolved URL must also pass the playback check ([Hoster resolvers](hoster-resolvers.md#cdn-checks)).
+With `stremio.verify_hls_segment` an HLS stream of StreamUp must also answer its first segment (a 403, 404 or 410 drops it; a timeout or network error keeps it).
 Each hoster and language thus contributes its best working stream (`hoster_key()`: dub and sub on one hoster are different content), and a hoster whose best link is dead still contributes its next one.
 A stream whose link does not resolve, only echoes the embed page, lies beyond `stremio.max_probe_count` or is cancelled at the answer is left out.
 `ResolveFlow` decides when the answer is due, by the answer rule of [the architecture](architecture.md#the-stremio-stream-request).

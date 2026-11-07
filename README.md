@@ -246,6 +246,7 @@ The settings you are most likely to change:
 | `stremio.answer_budget_seconds` | `SCAVENGARR_STREMIO_ANSWER_BUDGET_SECONDS` | unset (the plugin timeout) | When a Stremio request stops waiting for the search, counted from the request start; the plugins still searching finish in the background |
 | `stremio.stream_deadline_seconds` | `SCAVENGARR_STREMIO_STREAM_DEADLINE_SECONDS` | `60` | Latest answer of a Stremio request; it goes out earlier at `stremio.resolve_target_count` (5) streams or when everything is done |
 | `stremio.verify_streams` | `SCAVENGARR_STREMIO_VERIFY_STREAMS` | `true` | Drop resolved streams that do not return video |
+| `stremio.verify_hls_segment` | `SCAVENGARR_STREMIO_VERIFY_HLS_SEGMENT` | `true` | Drop StreamUp HLS streams whose first segment answers 403, 404 or 410 |
 | `stremio.language_scores` | `SCAVENGARR_STREMIO_LANGUAGE_SCORES` (JSON) | `de` > `de-sub` > `en-sub` > `en` | Language ranking of streams |
 | `stremio.max_results_per_plugin` | `SCAVENGARR_STREMIO_MAX_RESULTS_PER_PLUGIN` | `100` (`data/config.yaml`: `50`) | Results per plugin and Stremio request |
 | `tmdb_api_key` | `SCAVENGARR_TMDB_API_KEY` | unset | TMDB key for catalogs and title lookup (IMDb/Wikidata fallback without it) |

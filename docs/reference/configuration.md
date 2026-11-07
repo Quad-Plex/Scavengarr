@@ -183,6 +183,7 @@ Unprefixed `CACHE_*` variables are not read.
 | `SCAVENGARR_STREMIO_TITLE_YEAR_BONUS` | float | `0.2` | Score bonus when result year matches reference year. |
 | `SCAVENGARR_STREMIO_TITLE_YEAR_TOLERANCE_MOVIE` | int | `1` | Allowed year difference for movies (±N years). |
 | `SCAVENGARR_STREMIO_TITLE_YEAR_TOLERANCE_SERIES` | int | `3` | Allowed year difference for series (±N years). |
+| `SCAVENGARR_STREMIO_VERIFY_HLS_SEGMENT` | bool | `true` | Before a StreamUp (filmpalast) HLS stream is offered, fetch the first bytes of one segment (4 s in total, at most one segment per stream, in parallel for all candidates). A 403, 404 or 410 drops the stream; a timeout or network error keeps it. |
 | `SCAVENGARR_STREMIO_VERIFY_STREAMS` | bool | `true` | Check every resolved video URL before returning it (first bytes with the playback headers); error pages, HTML and broken HLS playlists are dropped instead of shown in Stremio. Off, only resolvers without a check of their own (SuperVideo) are checked. |
 
 ### `scoring`

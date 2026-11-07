@@ -426,6 +426,15 @@ class StremioConfig(BaseModel):
             "resolvers without a check of their own (SuperVideo) are checked."
         ),
     )
+    verify_hls_segment: bool = Field(
+        default=True,
+        description=(
+            "Before a StreamUp (filmpalast) HLS stream is offered, fetch the "
+            "first bytes of one segment (4 s in total, at most one segment per "
+            "stream, in parallel for all candidates). A 403, 404 or 410 drops "
+            "the stream; a timeout or network error keeps it."
+        ),
+    )
     probe_concurrency: int = Field(
         default=10,
         description="Max parallel hoster resolutions at stream time.",

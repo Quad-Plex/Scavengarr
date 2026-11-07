@@ -6,7 +6,7 @@ import asyncio
 import re
 import time
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx
 import structlog
@@ -27,6 +27,10 @@ _ERROR_PAGE_NAMES = frozenset({"404", "error", "errors"})
 _SNIFF_BYTES = 4096
 _VERIFY_TIMEOUT_S = 8.0
 _PLAYBACK_CHECK_TIMEOUT_S = 6.0
+# The whole segment probe (up to two playlists and one segment)
+_SEGMENT_PROBE_TIMEOUT_S = 4.0
+# What a CDN answers for a signed link that has expired or was never valid
+_SEGMENT_GONE_STATUSES = frozenset({403, 404, 410})
 # A CDN that does not allow HEAD is asked for the first bytes instead
 _HEAD_NOT_ALLOWED = 405
 
@@ -263,3 +267,71 @@ async def check_playable(
         reason=reason,
     )
     return PlaybackCheck(False)
+
+
+def _first_uri(playlist: bytes) -> str | None:
+    """The first URI line of an HLS playlist (a variant or a segment)."""
+    for raw in playlist.decode("utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#"):
+            return line
+    return None
+
+
+async def _segment_url(
+    http_client: httpx.AsyncClient, stream: ResolvedStream, headers: dict[str, str]
+) -> str | None:
+    """The first segment of an HLS stream: the first variant of a master
+    playlist, then that media playlist's first segment. A segment URL
+    without a query takes the stream URL's, as the HLS proxy sends it. None
+    when a playlist is not one or lists no segment."""
+    url = stream.video_url
+    for _ in range(2):
+        answer = await _first_bytes(http_client, url, headers, _SEGMENT_PROBE_TIMEOUT_S)
+        if answer.status >= 400 or not answer.head.startswith(b"#EXTM3U"):
+            return None
+        uri = _first_uri(answer.head)
+        if uri is None:
+            return None
+        target = urljoin(url, uri)
+        if b"#EXT-X-STREAM-INF" not in answer.head:
+            query = urlparse(stream.video_url).query
+            if query and not urlparse(target).query:
+                target = f"{target}?{query}"
+            return target
+        url = target
+    return None
+
+
+async def segment_is_gone(
+    http_client: httpx.AsyncClient, stream: ResolvedStream
+) -> bool:
+    """Whether the first segment of an HLS *stream* answers 403, 404 or 410.
+
+    Walks the playlists to one segment and asks for its first bytes (a
+    ``Range`` GET with the playback headers and the player's User-Agent),
+    all within ``_SEGMENT_PROBE_TIMEOUT_S``. A signed CDN link can expire
+    or be refused while its playlists still answer, so the player would
+    open a stream that fails at its first segment. Any other result (a
+    timeout, a network error, a playlist that is gone or lists nothing,
+    another status) is no verdict and returns ``False``: the stream stays.
+    """
+    if not stream.is_hls:
+        return False
+    headers = {"User-Agent": DEFAULT_USER_AGENT, **stream.headers}
+    cdn = extract_domain(stream.video_url)
+    try:
+        async with asyncio.timeout(_SEGMENT_PROBE_TIMEOUT_S):
+            segment = await _segment_url(http_client, stream, headers)
+            if segment is None:
+                return False
+            answer = await _first_bytes(
+                http_client, segment, headers, _SEGMENT_PROBE_TIMEOUT_S
+            )
+    except (httpx.HTTPError, TimeoutError) as exc:
+        log.info("hls_segment_probe_unread", cdn=cdn, error=type(exc).__name__)
+        return False
+    if answer.status in _SEGMENT_GONE_STATUSES:
+        log.info("hls_segment_probe_gone", cdn=cdn, status=answer.status)
+        return True
+    return False
