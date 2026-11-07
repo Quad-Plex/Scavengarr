@@ -116,6 +116,7 @@ Production's container once lost its network namespace for 33 h (the VPN contain
 
 - The probe pings the cache backend (`CachePort.ping()`) and resolves the fully qualified public name `example.com.` concurrently, each check within 3 s, at most once every 30 s; a request in between gets the last probe's verdict. It runs only when asked: the image's healthcheck asks every 30 s, and without a caller the gauge has no sample.
 - The network counts as lost once both checks have failed for longer than 5 min; `/api/v1/readyz` then answers 503 with `"reason": "network"`. A single miss changes nothing, and neither does one check failing alone (a Redis restart, a DNS hiccup).
+- A check that raises (a closed transport raises a `RuntimeError`, no Redis error) makes `/api/v1/readyz` answer 503 with `"reason": "cache"`, not 500; the log line `readyz_check_failed` carries the exception's type, never its text, which can hold the Redis URL.
 - Every probe sets `scavengarr_network_ok{check="cache"}` and `scavengarr_network_ok{check="dns"}` to 1 or 0; no alert rule reads it, the post-deploy check does ([Operations](../how-to/operations.md#5-check-a-deploy)).
 - The loss logs `network_lost` once (error, with `seconds`, `probes` and `dns_error`), its end `network_recovered` (`seconds`, `probes`); a failed Redis ping counts toward the cache's `redis_unavailable` and `redis_recovered` lines.
 - Docker marks the container unhealthy after three failed checks and restarts nothing by itself.

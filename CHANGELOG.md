@@ -6,6 +6,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Fixed: Readiness Answers 503 When the Cache Check Raises
+
+- `/api/v1/readyz` answered 500 when the cache backend's ping raised an error that is no Redis error (a `RuntimeError` "handler is closed" of a closed transport). Any exception of the probe now gives 503 with `{"status": "not_ready", "reason": "cache"}`; the log line `readyz_check_failed` names the exception's type only.
+- Tests: `test_health_routes.py` (a ping that raises gives 503 without the error's text, a ping that works gives 200).
+
 ### Fixed: A Film's Follow-Up With Another Year Is Another Film
 
 - A film one year after the reference passed the movie tolerance, and a title that adds a subtitle to the reference's scored 1.0 by the subset ratio: a series' first film was mapped to its follow-up ("Film A" and "Film A: Subtitle", one year apart). A movie result with another year is now dropped (reason `year`) when its title extends a reference title by a subtitle or a number, or the other way round, and none of its candidates is a reference title itself; the same year keeps a shortened title ("Dune" 2021 for "Dune: Part One"), and series results keep the rule as it was (a result's year may be its season's).
