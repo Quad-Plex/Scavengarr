@@ -46,9 +46,13 @@ _PAGE_RETRY_DELAY_S = 2.0  # x attempt number
 # hdfilme.ceo embeds /custom/movie/<imdb> (lazily, from data-src); the
 # classic page /movie/<imdb> still carries the token
 _MOVIE_PLAYER_RE = re.compile(r"devideosrc\.co/(?:custom/)?movie/(tt\d+)")
-_SERIAL_PLAYER_RE = re.compile(r"devideosrc\.co/serial/")
+_SERIAL_PLAYER_RE = re.compile(r"devideosrc\.co/(?:custom/)?serial/(tt\d+)")
+_SERIAL_PLAYER_NO_ID_RE = re.compile(r"devideosrc\.co/(?:custom/)?serial/")
 _IMDB_RE = re.compile(r"devideosrc\.co/(?:embed/download|serial)/(tt\d+)")
 _IMDB_VAR_RE = re.compile(r"""var\s+imdb\s*=\s*['"](tt\d+)['"]""")
+# hdfilme's Next.js series page carries the id in its RSC payload; the quotes
+# are escaped there (\"imdb\":\"tt...\")
+_IMDB_JSON_RE = re.compile(r'imdb\\?":\\?"(tt\d+)')
 _TOKEN_RE = re.compile(r"""token:\s*["']([A-Za-z0-9_.=-]+)["']""")
 
 
@@ -65,8 +69,17 @@ def find_player(html: str) -> DevideosrcPlayer | None:
     movie = _MOVIE_PLAYER_RE.search(html)
     if movie:
         return DevideosrcPlayer(kind="movie", imdb_id=movie.group(1))
-    if _SERIAL_PLAYER_RE.search(html):
+    serial = _SERIAL_PLAYER_RE.search(html)
+    if serial:
+        return DevideosrcPlayer(kind="tv", imdb_id=serial.group(1))
+    if _SERIAL_PLAYER_NO_ID_RE.search(html):
         imdb = _IMDB_VAR_RE.search(html) or _IMDB_RE.search(html)
+        if imdb:
+            return DevideosrcPlayer(kind="tv", imdb_id=imdb.group(1))
+    # hdfilme's Next.js series page has no iframe in the first HTML: the
+    # player component gets mediaId/imdb from the RSC payload.
+    if '"stagioni"' in html or "/serie/" in html:
+        imdb = _IMDB_JSON_RE.search(html)
         if imdb:
             return DevideosrcPlayer(kind="tv", imdb_id=imdb.group(1))
     return None
