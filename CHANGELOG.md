@@ -6,6 +6,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Fixed: The IMDb Fallback Takes Only the Requested Id's Entry
+
+- Without a TMDB key, a suggest answer that did not list the requested id gave the title and year of its first entry, another film (the first film for its sequel), and cached it for 24 h. The answer now gives no title (`imdb_suggest_id_missing`) and nothing is cached; a cached entry of another id is not served.
+- Tests: `test_imdb_fallback.py` (an answer without the requested id, an answer that lists the first film before its sequel, a cached entry of another id).
+
 ### Fixed: moflix's Search Survives a Page After the Cloudflare Challenge
 
 - When Cloudflare challenged moflix's API, the browser passed the challenge but handed back a page instead of the API's JSON, with only the clearance cookie and without the site's session; the adoption had dropped the session httpx held. The plugin logged `moflix_invalid_json` and answered a search without results, and a background refresh of a cached Stremio search replaced the title's moflix result (its 1080p mirrors) with nothing and stored the entry complete. Cloudflare challenges the API only, not the homepage, and the clearance lets httpx through.

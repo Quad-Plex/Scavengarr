@@ -100,6 +100,7 @@ The reference titles are the localised title and TMDB's original title where it 
 A plugin is searched with the titles of its own languages only: the original title is no search query.
 TMDB's answers are cached: a lookup for 24 h, the trending lists for 6 h, a search for 1 h and the IMDb ids of catalog items for 30 days.
 Without a TMDB key `ImdbFallbackClient` (`infrastructure/tmdb/imdb_fallback.py`) takes the titles from the IMDB Suggest API and the localised ones from Wikidata (the IMDb property `P345`).
+Title and year come from the suggest entry with the requested id; an answer without that id gives no title (`imdb_suggest_id_missing`) and is not cached.
 
 Plugins declare their `languages` (default `["de"]`), and the use case groups the plugins by identical language lists.
 It looks up the titles of every language a stream plugin searches in, in parallel, and searches each group with its languages' queries (`application/stremio/queries.py`).
