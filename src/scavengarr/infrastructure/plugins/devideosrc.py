@@ -55,7 +55,7 @@ _IMDB_VAR_RE = re.compile(r"""var\s+imdb\s*=\s*['"](tt\d+)['"]""")
 # hdfilme's Next.js series page carries the id in its RSC payload; the quotes
 # are escaped there (\"imdb\":\"tt...\", \"base\":\"/serie/...\").
 _IMDB_JSON_RE = re.compile(r'imdb\\?":\\?"(tt\d+)')
-_SERIES_BASE_RE = re.compile(r'(?:\\?"base\\?"\s*:\s*\\?"/serie/)')
+_SERIES_BASE_RE = re.compile(r'\\?"base\\?"\s*:\s*\\?"/serie/')
 _TOKEN_RE = re.compile(r"""token:\s*["']([A-Za-z0-9_.=-]+)["']""")
 
 
