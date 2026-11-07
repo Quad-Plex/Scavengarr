@@ -20,7 +20,7 @@ The maintainer chose option A: VEEV through the file proxy, which resumes at the
   - a reset or an early end: a `Range` request from the next byte at once;
   - a stall: no byte for `stremio.file_stall_timeout_seconds` (default 10 s, 1 to 30) once the answer has sent its first byte;
   - at one offset at most 3 attempts, after waits of 0, 1 and 2 s, each bounded by the stall timeout; the count starts again once bytes flow;
-  - a refusal (403, 404, 410) during a resume: one new resolution per interruption, past the resolver's cache, then the new URL and headers;
+  - a refusal (403, 404, 410) during a resume: one new resolution per offset, past the resolver's cache, then one more attempt, not counted against the three, with the new URL and headers;
   - the third failed attempt aborts the player's connection (`FileCut`).
 - **Telemetry.** `scavengarr_file_resume_total{hoster,reason,outcome}` (`reason`: `reset`, `eof`, `stall`; `outcome`: `resumed`, `gave_up`) and `scavengarr_file_resume_seconds{hoster,reason}`; `hoster` is a resolver name or `other`.
 - **Unchanged.** HLS segments keep their one resume or restart; the opening request of a file keeps its 60 s read timeout; address-bound files keep the proxy.

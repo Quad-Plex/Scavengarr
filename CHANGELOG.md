@@ -6,6 +6,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Changed: The File Stall Bound and the Attempt After a New Resolution Are Named
+
+- `stremio.file_stall_timeout_seconds` times a piece of 64 KiB, not a byte: a body slower than 64 KiB per timeout counts as stalled while bytes flow (at the 1 s minimum, about 520 kbit/s). The setting's description, the Stremio addon doc and decision 0017 say so. No behaviour changed.
+- The attempt after a new resolution does not count against the three and the resolution's time lies outside their 33 s: the decision, the spec, the design and the docs now say once per offset (as the code does), not once per interruption, and name the extra attempt.
+
 ### Fixed: An MP4 File's Quality Comes From Its Video Track Only
 
 - The measured size was the largest track header of any track, so a cover or text track larger than the video, or a disabled track, could set the quality label, and a track header of a version above 1 was read with version 0's offsets. A track now counts when it is enabled, its handler is `vide` and its header is version 0 or 1; a track whose handler the 4 KiB cut names nothing.

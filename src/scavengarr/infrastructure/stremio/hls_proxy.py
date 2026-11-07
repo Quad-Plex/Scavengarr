@@ -61,11 +61,14 @@ _FILE_READ_TIMEOUT_S = 60.0
 _SEGMENT_READ_TIMEOUT_S = 15.0
 # A proxied file's stall timeout (``stremio.file_stall_timeout_seconds``):
 # a body that sent its first byte and then nothing for this long is asked
-# for again. Measured gaps of flowing bodies stayed under 2 s, and a
-# player's proxy waits 60 s for a byte (decision 0017)
+# for again. It times a piece of ``_SEGMENT_CHUNK``, not a byte. Measured
+# gaps of flowing bodies stayed under 2 s, and a player's proxy waits 60 s
+# for a byte (decision 0017)
 FILE_STALL_TIMEOUT_S = 10.0
 # The waits before the attempts at one offset of a proxied file's resume:
-# three attempts of the stall timeout and these waits end within 33 s
+# three attempts of the stall timeout and these waits end within 33 s; the
+# attempt after a new resolution is not counted and comes on top, with the
+# resolution's time
 _FILE_RESUME_WAITS = (0.0, 1.0, 2.0)
 # CDN answers a new resolution may fix (an expired URL)
 _REFUSED = frozenset({403, 404, 410})

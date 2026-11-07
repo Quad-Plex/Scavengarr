@@ -22,7 +22,8 @@ Stremio gets such a file through `/api/v1/stremio/proxy/<id>/file`, as an addres
 The file proxy resumes a proxied file after every interruption for as long as the response runs: a reset or a body that ends before the promised length is asked for again at once from the next byte, and a body that sends no byte for `stremio.file_stall_timeout_seconds` (10 s) is asked for again the same way.
 A resume must start at the next byte (206 from that offset), otherwise it counts as a failed attempt.
 At one offset at most three attempts run, after waits of 0, 1 and 2 s, each bounded by the stall timeout; the count starts again once bytes flow.
-A refusal (403, 404, 410) during a resume resolves the hoster URL again once per interruption, past the resolver's cache, and the transfer goes on from the new URL with its headers.
+The stall timeout times a piece of 64 KiB, not a byte: a body slower than 64 KiB per timeout counts as stalled while bytes flow.
+A refusal (403, 404, 410) during a resume resolves the hoster URL again once per offset, past the resolver's cache, and one more attempt, not counted against the three, goes on from the new URL with its headers.
 After the third failed attempt the player's connection aborts (`FileCut`), and the player asks again with a range of its own.
 The proxy keeps the headers the link was resolved with (the bound `User-Agent` and `Accept-Language` among them) for every request of the transfer.
 Segments of HLS streams keep their one resume or restart.
@@ -33,7 +34,7 @@ Segments of HLS streams keep their one resume or restart.
 - The production host carries the bytes of every VEEV playback; a playback is bounded by one connection per player request, and the CDN semaphore is held only until an answer's headers.
 - A restart or a deploy of Scavengarr, and an exit of the stall monitor with its switch on, cut a running VEEV playback, which the redirect left to the CDN before.
 - Every proxied file gets the resume rules, address-bound ones included; a resume whose CDN needs longer than the stall timeout for its first byte gives up after three attempts, and the player's own new request gets the opening request's 60 s.
-- The stall timeout must stay well under the 60 s a player's proxy waits for a byte: three attempts of 10 s and 3 s of waits end within 33 s.
+- The stall timeout must stay well under the 60 s a player's proxy waits for a byte: three attempts of 10 s and 3 s of waits end within 33 s, and a new resolution after a refusal adds the resolution (within the resolve bound, 15 s) and one more attempt of 10 s.
 - Resumes and give-ups are counted per hoster and reason (`scavengarr_file_resume_total`), with the time a resume took.
 - A link stored before its resolver declared `idle_reset` keeps `/play` until its hoster resolves again.
 

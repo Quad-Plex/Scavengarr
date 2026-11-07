@@ -395,9 +395,13 @@ class StremioConfig(BaseModel):
             "Seconds a file played through Scavengarr's proxy may send no "
             "byte once it flowed before the proxy asks its CDN again from the "
             "next byte; also a resume attempt's wait for its answer and first "
-            "byte. It must stay well under the 60 s a player's proxy waits for "
-            "a byte: three attempts and their waits of 0, 1 and 2 s end within "
-            "33 s at 10 s."
+            "byte. The bound times a piece of 64 KiB, not a byte: a body "
+            "slower than 64 KiB per timeout counts as stalled while bytes "
+            "flow (at 1 s, about 520 kbit/s). It must stay well under the "
+            "60 s a player's proxy waits for a byte: three attempts and their "
+            "waits of 0, 1 and 2 s end within 33 s at 10 s, and a new "
+            "resolution after a refusal adds the resolution (up to the "
+            "resolve bound) and one more attempt."
         ),
     )
 

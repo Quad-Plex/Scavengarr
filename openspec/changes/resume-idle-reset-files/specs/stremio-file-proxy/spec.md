@@ -49,7 +49,7 @@ At one offset at most three resume attempts SHALL run, after waits of 0, 1 and 2
 - **THEN** the body raises `FileCut` after three attempts
 
 ### Requirement: A Refused Resume Resolves Again
-A refusal (403, 404, 410) of a resume SHALL resolve the hoster URL again once per interruption, past the resolver's cache, and the transfer SHALL go on from the new URL with the new resolution's headers.
+A refusal (403, 404, 410) of a resume SHALL resolve the hoster URL again once per offset, past the resolver's cache, and the transfer SHALL go on from the new URL with the new resolution's headers in one more attempt that does not count against the three.
 
 #### Scenario: Expired URL mid-body
 - **WHEN** a resume is answered 403 and the new resolution gives a URL that answers 206 from the next byte

@@ -10,7 +10,7 @@ A file's body is only read while the player reads: during a pause the generator 
 - **Goals:**
   - A paused playback of an idle-resetting CDN goes on after the pause within about one second, with no byte lost or doubled.
   - A CDN that falls silent mid-body is asked again well before a player's proxy gives up (60 s).
-  - The recovery is bounded: a CDN that refuses every resume ends the transfer within 33 s.
+  - The recovery is bounded: a CDN that refuses every resume ends the transfer within 33 s, plus one new resolution (within the resolve bound) and one more attempt of the stall timeout.
 - **Non-Goals:**
   - Keeping the CDN's connection alive during the pause (read-ahead into memory).
   - Changing the HLS segments' resume.
@@ -20,9 +20,9 @@ A file's body is only read while the player reads: during a pause the generator 
 
 - **The flag `idle_reset`** sits beside `address_bound` on the resolver, `ResolvedStream` and `CachedStreamLink`; the builder and the file route accept either. One combined flag would hide why a hoster is proxied.
 - **The resume lives in `_cdn_body`**, guarded by the file's `FileResume` (stall timeout, refresh callback, telemetry, hoster label, waits): one generator still owns the CDN's answer.
-- **The stall bound** wraps each read of a file's body after the answer's first byte in `asyncio.timeout(stall)`; the opening answer's headers and first byte keep the 60 s read timeout. A resume attempt's request and its answer's first byte share one deadline of the stall timeout (`asyncio.timeout_at`), the CDN semaphore and the client's retries included, so an attempt ends within the stall timeout.
+- **The stall bound** wraps each read of a file's body after the answer's first byte in `asyncio.timeout(stall)`; the opening answer's headers and first byte keep the 60 s read timeout. A resume attempt's request and its answer's first byte share one deadline of the stall timeout (`asyncio.timeout_at`), the CDN semaphore and the client's retries included, so an attempt ends within the stall timeout. The bound times each read of a piece of 64 KiB (`aiter_raw(chunk_size=65536)`), not a byte: a body slower than 64 KiB per timeout counts as stalled while bytes flow.
 - **Attempts are counted per offset** on the transfer (`attempts`, `attempt_at`): a resume that answers 206 and dies before a byte counts against the same budget, so a CDN that resets every new connection at once ends after three attempts.
-- **The refresh is a callback** (`refresh(status) -> (url, headers) | None`) the route builds from `StremioLinks.after_refusal`, so the infrastructure imports nothing of the application layer; it runs once per interruption.
+- **The refresh is a callback** (`refresh(status) -> (url, headers) | None`) the route builds from `StremioLinks.after_refusal`, so the infrastructure imports nothing of the application layer; it runs once per offset (`refreshed_at`), and the attempt after it (`again`) does not count against the three.
 - **The interruption's reason** comes from the error: `httpx.ReadTimeout` or the stall bound is `stall`, `httpx.RemoteProtocolError` and a clean end short of the promised length are `eof`, every other transport error is `reset`.
 - **Telemetry** is a stage `file_resume` with the labels `hoster` (a resolver name, else `other`) and `reason`; its outcome is `resumed` or `gave_up`, its duration the time from the interruption to the resumed answer.
 
