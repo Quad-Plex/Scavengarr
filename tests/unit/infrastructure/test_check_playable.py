@@ -23,7 +23,7 @@ from scavengarr.infrastructure.hoster_resolvers.registry import (
 )
 from scavengarr.infrastructure.plugins.constants import DEFAULT_USER_AGENT
 
-from .test_mp4_header import _FTYP, _mdat_header, _moov, _trak
+from .mp4_support import FTYP, box, mdat_header, moov, trak
 
 _MP4 = "https://cdn.example.com/v.mp4"
 _M3U8 = "https://cdn.example.com/master.m3u8"
@@ -345,7 +345,7 @@ class TestMp4Measurement:
     where it starts, within the check's timeout."""
 
     _MDAT = 10**9
-    _MOOV_AT = len(_FTYP) + _MDAT
+    _MOOV_AT = len(FTYP) + _MDAT
     _TOTAL = _MOOV_AT + 5000
     _TAIL_RANGE = f"bytes={_MOOV_AT}-{_MOOV_AT + _SNIFF_BYTES - 1}"
     _TAIL_ANSWER = f"bytes {_MOOV_AT}-{_TOTAL - 1}/{_TOTAL}"
@@ -364,9 +364,7 @@ class TestMp4Measurement:
 
     @respx.mock
     async def test_fast_start_file_gives_its_size_without_another_read(self) -> None:
-        head = self._head_route(
-            _FTYP + _moov(_trak(1920, 800)) + _mdat_header(self._MDAT)
-        )
+        head = self._head_route(FTYP + moov(trak(1920, 800)) + mdat_header(self._MDAT))
         tail = self._tail_route().respond(206)
 
         check = await _measure(ResolvedStream(_MP4))
@@ -377,10 +375,10 @@ class TestMp4Measurement:
 
     @respx.mock
     async def test_moov_after_the_media_data_is_read_where_it_starts(self) -> None:
-        self._head_route(_FTYP + _mdat_header(self._MDAT) + bytes(64))
+        self._head_route(FTYP + mdat_header(self._MDAT) + bytes(64))
         tail = self._tail_route().respond(
             206,
-            content=_moov(_trak(0, 0), _trak(1280, 720)),
+            content=moov(trak(0, 0), trak(1280, 720)),
             headers={"Content-Range": self._TAIL_ANSWER},
         )
 
@@ -393,8 +391,45 @@ class TestMp4Measurement:
         assert sent.headers["User-Agent"] == DEFAULT_USER_AGENT
 
     @respx.mock
+    async def test_the_moov_read_may_start_with_a_free_box(self) -> None:
+        self._head_route(FTYP + mdat_header(self._MDAT) + bytes(64))
+        self._tail_route().respond(
+            206,
+            content=box(b"free", bytes(32)) + moov(trak(1280, 720)),
+            headers={"Content-Range": self._TAIL_ANSWER},
+        )
+
+        check = await _measure(ResolvedStream(_MP4))
+
+        assert check == PlaybackCheck(True, 1280, 720, self._TOTAL)
+
+    @respx.mock
+    async def test_fast_start_file_without_content_range_is_measured(self) -> None:
+        respx.get(_MP4).respond(
+            200, content=FTYP + moov(trak(1920, 800)) + mdat_header(self._MDAT)
+        )
+
+        check = await _measure(ResolvedStream(_MP4))
+
+        assert check == PlaybackCheck(True, 1920, 800, None)
+
+    @respx.mock
+    async def test_a_file_that_is_no_mp4_makes_one_request(self) -> None:
+        # It names its total, but starts with no ftyp: no second read
+        route = respx.get(_MP4).respond(
+            206,
+            content=b"\x1aE\xdf\xa3" + bytes(64),
+            headers={"Content-Range": f"bytes 0-{_SNIFF_BYTES - 1}/{self._TOTAL}"},
+        )
+
+        check = await _measure(ResolvedStream(_MP4))
+
+        assert check == PlaybackCheck(True, size_bytes=self._TOTAL)
+        assert route.call_count == 1
+
+    @respx.mock
     async def test_a_failed_moov_read_measures_nothing(self) -> None:
-        self._head_route(_FTYP + _mdat_header(self._MDAT))
+        self._head_route(FTYP + mdat_header(self._MDAT))
         self._tail_route().mock(side_effect=httpx.ReadTimeout("slow"))
 
         with structlog.testing.capture_logs() as logs:
@@ -425,10 +460,10 @@ class TestMp4Measurement:
     async def test_an_answer_from_elsewhere_measures_nothing(
         self, status: int, content_range: str | None
     ) -> None:
-        self._head_route(_FTYP + _mdat_header(self._MDAT))
+        self._head_route(FTYP + mdat_header(self._MDAT))
         headers = {"Content-Range": content_range} if content_range else {}
         self._tail_route().respond(
-            status, content=_moov(_trak(1920, 1080)), headers=headers
+            status, content=moov(trak(1920, 1080)), headers=headers
         )
 
         check = await _measure(ResolvedStream(_MP4))
@@ -445,21 +480,24 @@ class TestMp4Measurement:
             await asyncio.sleep(5)
             return httpx.Response(206)
 
-        self._head_route(_FTYP + _mdat_header(self._MDAT))
+        self._head_route(FTYP + mdat_header(self._MDAT))
         self._tail_route().mock(side_effect=slow)
 
         started = time.monotonic()
-        check = await _measure(ResolvedStream(_MP4))
+        with structlog.testing.capture_logs() as logs:
+            check = await _measure(ResolvedStream(_MP4))
 
         assert time.monotonic() - started < 2
         assert (check.playable, check.width) == (True, None)
+        unread = [e for e in logs if e["event"] == "playback_check_moov_unread"]
+        assert [e["error"] for e in unread] == ["TimeoutError"]
 
     @respx.mock
     async def test_no_moov_read_without_time_left(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(_verify, "_PLAYBACK_CHECK_TIMEOUT_S", 0.0)
-        self._head_route(_FTYP + _mdat_header(self._MDAT))
+        self._head_route(FTYP + mdat_header(self._MDAT))
         tail = self._tail_route().respond(206)
 
         check = await _measure(ResolvedStream(_MP4))
@@ -470,7 +508,7 @@ class TestMp4Measurement:
     @respx.mock
     async def test_no_moov_read_without_the_files_total(self) -> None:
         respx.get(_MP4, headers={"Range": f"bytes=0-{_SNIFF_BYTES - 1}"}).respond(
-            206, content=_FTYP + _mdat_header(self._MDAT)
+            206, content=FTYP + mdat_header(self._MDAT)
         )
         tail = self._tail_route().respond(206)
 
@@ -493,7 +531,7 @@ class TestMp4Measurement:
     @respx.mock
     async def test_the_result_carries_the_files_quality(self) -> None:
         # Like an HLS master playlist's: the registry's measured quality
-        self._head_route(_FTYP + _moov(_trak(1920, 1080)))
+        self._head_route(FTYP + moov(trak(1920, 1080)))
         async with httpx.AsyncClient() as client:
             registry = HosterResolverRegistry(
                 resolvers=[_StubResolver()], http_client=client, verify_playback=True
