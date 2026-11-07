@@ -6,6 +6,13 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Fixed: hdfilme and streamcloud Follow Their 2026-11 Layout
+
+- hdfilme and streamcloud moved to `hd-filme.today` / `streamcloud.date`, `GET /suche?q=`, `div.grid > a.cv` result cards and new detail metadata (`p.dmeta`/`p.dsyn`, `div.sc-riga`). Both parsers keep the old DLE markup as a fallback; the new search is one page of up to ~60 hits and ignores `?page=`.
+- `devideosrc.find_player()` recognises `custom/serial/<imdb>/<season>/<episode>` and hdfilme's Next.js RSC series payload (the `base` field under `/serie/`), so series resolve through the normal `/serial/<imdb>` player.
+- The XFS resolver sends the browser `User-Agent` beside the `Referer` on the CDN check and the resolved stream: dr0pstream's dropcdn answered the bot UA with 403, which dropped dropload-only series.
+- Tests: `test_hdfilme_plugin.py`, `test_streamcloud_plugin.py`, `test_devideosrc.py`, `test_xfs_resolver.py`; the plugin list is regenerated.
+
 ### Added: Tests Guard the Rate Limiter's Domain Grouping and Wiring
 
 - A regression in the rate limiter's domain grouping or in its wiring passed the tests. `test_adaptive_rate_limiter.py` now throttles one URL and expects `www.example.com` and `example.org` to slow down with it (one bucket per domain name), and `test_http_client_wiring.py` builds the shared HTTP client from a config and checks that the adaptive switch and the min and max rps reach the limiter. No behaviour changed.
