@@ -1180,9 +1180,11 @@ class TestFileResume:
         self,
         answers: list[httpx.Response],
         resume: FileResume | None = None,
+        player: dict[str, str] | None = None,
     ) -> tuple[bytes, list[httpx.Request], list[dict[str, object]], Exception | None]:
         """The body through the given CDN answers (as far as it went), the
-        requests the CDN saw, the log lines and the error the body raised."""
+        requests the CDN saw, the log lines and the error the body raised;
+        *player*: the player's request headers."""
         seen: list[httpx.Request] = []
 
         def handle(request: httpx.Request) -> httpx.Response:
@@ -1199,6 +1201,7 @@ class TestFileResume:
                     client,
                     self._URL,
                     {"Referer": "https://veev.example/", "User-Agent": "bound"},
+                    player=player,
                     resume=resume,
                 )
                 try:
@@ -1493,6 +1496,162 @@ class TestFileResume:
         assert isinstance(error, FileCut)
         assert refused == [403]
         assert len(seen) == 5
+
+    async def test_a_refresh_without_a_stream_adds_no_attempt(self) -> None:
+        """The new resolution gives no video: the transfer keeps its URL and
+        its three attempts, and resolves no second time at the offset."""
+        refused: list[int] = []
+
+        async def _refresh(status: int) -> tuple[str, dict[str, str]] | None:
+            refused.append(status)
+            return None
+
+        total = 2 * self._PIECE
+        answers = [
+            httpx.Response(
+                200,
+                headers={"Content-Length": str(total)},
+                stream=_CutChunks([b"a" * self._PIECE]),
+            ),
+            *(httpx.Response(403) for _ in range(3)),
+        ]
+
+        _, seen, _, error = await self._play(answers, FileResume(refresh=_refresh))
+
+        assert isinstance(error, FileCut)
+        assert refused == [403]
+        assert len(seen) == 4
+        assert {r.url.host for r in seen} == {"s-eri-1.veevcdn.example"}
+
+    async def test_every_resume_answer_it_does_not_go_on_with_is_closed_unread(
+        self,
+    ) -> None:
+        """A refusal, a server error, the whole file (200) and a range the
+        CDN cannot serve (416): each is closed before the next attempt."""
+
+        async def _refresh(status: int) -> tuple[str, dict[str, str]] | None:
+            return "https://s-eri-2.veevcdn.example/v/abc.mp4?t=new", {}
+
+        total = 2 * self._PIECE
+        bodies = [_Chunks([b"x" * self._PIECE]) for _ in range(4)]
+        answers = [
+            httpx.Response(
+                200,
+                headers={"Content-Length": str(total)},
+                stream=_CutChunks([b"a" * self._PIECE]),
+            ),
+            httpx.Response(403, stream=bodies[0]),
+            httpx.Response(500, stream=bodies[1]),
+            httpx.Response(
+                200, headers={"Content-Length": str(total)}, stream=bodies[2]
+            ),
+            httpx.Response(
+                416, headers={"Content-Range": f"bytes */{total}"}, stream=bodies[3]
+            ),
+        ]
+
+        body, seen, _, error = await self._play(answers, FileResume(refresh=_refresh))
+
+        assert isinstance(error, FileCut)
+        assert body == b"a" * self._PIECE
+        assert len(seen) == 5
+        assert [b.closed for b in bodies] == [True] * 4
+        assert [b.read for b in bodies] == [False] * 4
+
+    async def test_a_changed_file_after_a_new_resolution_is_not_spliced(
+        self,
+    ) -> None:
+        """The player's ``If-Range`` goes to the new URL too, and the whole
+        file it answers (200: the file changed) is closed unread."""
+
+        async def _refresh(status: int) -> tuple[str, dict[str, str]] | None:
+            return "https://s-eri-2.veevcdn.example/v/abc.mp4?t=new", {
+                "User-Agent": "bound-again"
+            }
+
+        total = 2 * self._PIECE
+        changed = [_Chunks([b"x" * total]) for _ in range(3)]
+        answers = [
+            httpx.Response(
+                206,
+                headers={"Content-Range": f"bytes 0-{total - 1}/{total}"},
+                stream=_CutChunks([b"a" * self._PIECE]),
+            ),
+            httpx.Response(403),
+            *(
+                httpx.Response(200, headers={"Content-Length": str(total)}, stream=c)
+                for c in changed
+            ),
+        ]
+
+        body, seen, _, error = await self._play(
+            answers,
+            FileResume(refresh=_refresh),
+            player={"Range": "bytes=0-", "If-Range": '"etag"'},
+        )
+
+        assert isinstance(error, FileCut)
+        assert body == b"a" * self._PIECE
+        assert len(seen) == 5
+        assert seen[2].url.host == "s-eri-2.veevcdn.example"
+        assert seen[2].headers["User-Agent"] == "bound-again"
+        assert [r.headers["If-Range"] for r in seen] == ['"etag"'] * 5
+        assert [c.closed for c in changed] == [True] * 3
+        assert [c.read for c in changed] == [False] * 3
+
+    async def test_a_player_gone_during_a_resumes_wait_ends_it_as_cut(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The player leaves while the resume waits for its second attempt:
+        no further request goes out and the stage ends ``cut``."""
+        monkeypatch.setattr(hls_proxy, "_FILE_RESUME_WAITS", (0.0, 30.0, 30.0))
+        waiting = asyncio.Event()
+        real_sleep = asyncio.sleep
+
+        async def _sleep(delay: float, *args: object, **kwargs: object) -> None:
+            if delay:
+                waiting.set()
+            await real_sleep(delay)
+
+        monkeypatch.setattr(asyncio, "sleep", _sleep)
+        telemetry = Telemetry()
+        total = 2 * self._PIECE
+        answers = [
+            httpx.Response(
+                200,
+                headers={"Content-Length": str(total)},
+                stream=_CutChunks([b"a" * self._PIECE]),
+            ),
+            httpx.Response(500),
+        ]
+        seen: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return answers[len(seen) - 1]
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            answer = await stream_file(
+                client,
+                self._URL,
+                {},
+                resume=FileResume(telemetry=telemetry, hoster="veev"),
+            )
+
+            async def _consume() -> None:
+                async for _ in answer.chunks:
+                    pass
+
+            task = asyncio.create_task(_consume())
+            async with asyncio.timeout(5):
+                await waiting.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert len(seen) == 2
+        assert self._resumes(telemetry, "reset", "cut") == 1
+        assert self._resumes(telemetry, "reset", "gave_up") == 0
 
     async def test_a_resume_reads_with_the_stall_timeout(self) -> None:
         total = 2 * self._PIECE
