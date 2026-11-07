@@ -69,12 +69,13 @@ flowchart TD
     judged -- no --> none["No stream from this link"]
     judged -- yes --> hls{"An HLS stream?"}
     hls -- yes --> hls_proxy["The HLS proxy serves it"]
-    hls -- no --> binding{"What does its CDN bind the URL to?"}
-    binding -- "the resolving address" --> file_proxy["/proxy/{id}/file passes the bytes through"]
-    binding -- "the player's headers" --> idle{"Does its CDN reset an idle connection?"}
+    hls -- no --> address{"Does its CDN play the URL only for the resolving address?"}
+    address -- yes --> file_proxy["/proxy/{id}/file passes the bytes through"]
+    address -- no --> idle{"Does its CDN reset an idle connection?"}
     idle -- yes --> file_proxy
-    idle -- no --> per_player["/play resolves it again per player"]
-    binding -- nothing --> play["/play redirects to it"]
+    idle -- no --> headers{"Does its CDN bind the player's headers?"}
+    headers -- yes --> per_player["/play resolves it again per player"]
+    headers -- no --> play["/play redirects to it"]
 ```
 
 ### Playback headers

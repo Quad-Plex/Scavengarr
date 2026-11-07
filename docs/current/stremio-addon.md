@@ -446,7 +446,7 @@ The route shares the HLS proxy's path, so its rate-limit exemption and query mas
 
 A link stored before its resolver declared `address_bound` or `idle_reset` plays through `/play` until its hoster resolves again.
 Each request is recorded on the HLS proxy's metrics with `kind="file"`, the bytes sent included, and the log lines name the CDN's domain only.
-A resume is recorded as `file_resume` by hoster and reason, `resumed` or `gave_up` ([metrics](../reference/metrics.md)).
+A resume is recorded as `file_resume` by hoster and reason, `resumed`, `gave_up`, `cut` or `error` ([metrics](../reference/metrics.md)).
 A player that pauses stops reading, and the CDN's connection sits idle meanwhile: the VEEV CDN and Vinovo's reset such a connection, and the resume after the pause carries the playback on.
 
 ### Health

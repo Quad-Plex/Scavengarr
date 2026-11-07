@@ -873,21 +873,21 @@ async def _resume(
     transfer: _Transfer,
     error: httpx.TransportError | None,
 ) -> httpx.Response:
-    """The CDN's answer for the rest of the body after *resp* ended short
-    (*error*: the transport error that ended it, if any), once per
-    transfer; ``FileCut`` or ``SegmentCut`` when the transfer cannot go on.
+    """The CDN's answer for the rest of a segment's body after *resp* ended
+    short (*error*: the transport error that ended it, if any), once per
+    transfer; ``SegmentCut`` when the transfer cannot go on. A file never
+    gets here: its body goes on by ``_resume_file``.
 
     A body with a promised length is asked for again from the next byte
     (``Range``, unencoded: the offsets are the CDN's; the request's other
-    headers kept, ``If-Range`` included: a changed file answers 200) and
-    goes on when the CDN answers 206 from there (``how="range"``). A
-    segment goes on from its start instead (``how="restart"``), the bytes
-    sent skipped (``_Transfer.skip``), when its CDN answers that range
-    with the whole segment (200) or when no range applies: no promised
-    length (chunked; an encoded answer, whose decoded bytes are no offsets
-    of the CDN's), asked for again with the request's own headers. A file
-    is not restarted: it would be read again up to its offset."""
-    if transfer.resumed or (transfer.expected is None and not transfer.segment):
+    headers kept) and goes on when the CDN answers 206 from there
+    (``how="range"``). The segment goes on from its start instead
+    (``how="restart"``), the bytes sent skipped (``_Transfer.skip``), when
+    its CDN answers that range with the whole segment (200) or when no
+    range applies: no promised length (chunked; an encoded answer, whose
+    decoded bytes are no offsets of the CDN's), asked for again with the
+    request's own headers."""
+    if transfer.resumed:
         raise transfer.cut(error) from error
     await resp.aclose()
     if transfer.expected is None:
@@ -907,7 +907,7 @@ async def _resume(
     if "Range" in headers and fresh.status_code == 206:
         how = "range" if _file_span(fresh)[0] == transfer.first + transfer.sent else ""
     else:
-        how = "restart" if transfer.segment and fresh.status_code == 200 else ""
+        how = "restart" if fresh.status_code == 200 else ""
     if not how:
         await fresh.aclose()
         raise transfer.cut(error) from error
@@ -915,7 +915,7 @@ async def _resume(
     if how == "restart":
         transfer.skip = transfer.sent
     log.info(
-        "hls_proxy_segment_resumed" if transfer.segment else "hls_proxy_file_resumed",
+        "hls_proxy_segment_resumed",
         cdn=extract_domain(transfer.url),
         at=transfer.sent,
         expected=transfer.expected,
@@ -972,7 +972,9 @@ async def _resume_file(
     (*resume*'s ``refresh``), and the next attempt runs at once with the new
     URL and headers. A file without a promised length is cut: its offsets
     are unknown. The resume is counted as the stage ``file_resume`` by
-    hoster and reason, ``resumed`` or ``gave_up``.
+    hoster and reason, ``resumed`` or ``gave_up``; a cancelled request
+    ends it as ``cut`` and a new resolution that raises as ``error`` (the
+    stage's own outcomes).
     """
     if transfer.expected is None:
         raise transfer.cut(error) from error

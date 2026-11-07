@@ -124,7 +124,8 @@ _STAGES: dict[StageName, _StageSpec] = {
     ),
     # A proxied file's resume after its CDN interrupted it, by hoster (a
     # resolver name, else ``other``) and reason (reset, eof, stall); its
-    # outcome resumed or gave_up. Three attempts end within 33 s
+    # outcome resumed, gave_up, or cut and error (the stage's own: the
+    # request left, a new resolution raised). Three attempts end within 33 s
     "file_resume": _StageSpec(
         ("hoster", "reason"),
         (0.25, 0.5, 1.0, 2.0, 4.0, 7.0, 15.0, 33.0),

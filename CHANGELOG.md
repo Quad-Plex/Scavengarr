@@ -6,6 +6,12 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Changed: The File Proxy's Docs Name Every Resume Outcome and Every Idle-Reset Route
+
+- The stage `file_resume` also ends `cut` (the player left while the resume ran) and `error` (an exception other than a transport error or the attempt's timeout, such as a new resolution that raised); `docs/reference/metrics.md` and the Stremio addon doc name all four outcomes.
+- The dispatch flowchart of the hoster resolvers asks the address binding first and the idle reset second, as the stream builder does: any `idle_reset` resolver is proxied, client-bound or not. The docstrings of `proxy_hls`, `_proxy_file` and `_hls_kind` name idle-reset files beside address-bound ones.
+- `_resume` in `hls_proxy.py` serves segments only: its file branches were unreachable since every file gets a `FileResume` and goes on by `_resume_file`. No behaviour changed.
+
 ### Changed: The File Stall Bound and the Attempt After a New Resolution Are Named
 
 - `stremio.file_stall_timeout_seconds` times a piece of 64 KiB, not a byte: a body slower than 64 KiB per timeout counts as stalled while bytes flow (at the 1 s minimum, about 520 kbit/s). The setting's description, the Stremio addon doc and decision 0017 say so. No behaviour changed.

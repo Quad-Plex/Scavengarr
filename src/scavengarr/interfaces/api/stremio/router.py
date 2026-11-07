@@ -474,9 +474,10 @@ async def proxy_hls(
     the stream's content type with a HEAD request before it plays. A
     segment is not downloaded for HEAD.
 
-    An address-bound file (``FILE_NAME``; its CDN plays it only for the
-    address that resolved it) is streamed with the player's byte range
-    (``_proxy_file``).
+    A file whose CDN plays it only for the address that resolved it
+    (``address_bound``) or resets a connection the paused player leaves
+    idle (``idle_reset``) is served at ``FILE_NAME``: streamed with the
+    player's byte range and resumed after an interruption (``_proxy_file``).
 
     The playlist is not served to a streaming server's converter unless
     ``stremio.allow_hls_transcoding`` is on (``_converter_refused``).
@@ -500,8 +501,8 @@ async def proxy_hls(
 
 
 def _hls_kind(path: str) -> str:
-    """The stream's own playlist (``master``), an address-bound ``file``,
-    another ``playlist`` or a ``segment``."""
+    """The stream's own playlist (``master``), an address-bound or idle-reset
+    ``file``, another ``playlist`` or a ``segment``."""
     if path == HLS_MASTER:
         return "master"
     if path == FILE_NAME:
@@ -667,8 +668,9 @@ async def _proxy_file(
     stream_id: str,
     request: Request,
 ) -> Response | JSONResponse:
-    """An address-bound file (``FILE_NAME``): the current video URL streamed
-    with the player's byte range, the CDN's status and headers passed on.
+    """An address-bound or idle-reset file (``FILE_NAME``): the current video
+    URL streamed with the player's byte range, the CDN's status and headers
+    passed on.
 
     When the CDN refuses the file (403, 404, 410: an expired URL), it is
     fetched once more from the link ``StremioLinks.after_refusal`` gives,
