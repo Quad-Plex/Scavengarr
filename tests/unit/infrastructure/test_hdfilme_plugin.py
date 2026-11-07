@@ -182,6 +182,47 @@ _SERIES_DETAIL_HTML = """\
 """
 
 
+_CV_SEARCH_HTML = """\
+<div class="grid">
+  <a class="cv" href="/filme1/197-braveheart-stream" title="Braveheart">
+    <div class="cv-art"><img src="/poster.jpg" alt="Braveheart"></div>
+    <div class="cv-t">Braveheart</div>
+    <div class="cv-m">1995</div>
+  </a>
+  <a class="cv" href="/filme1/198-inception-stream" title="Inception">
+    <div class="cv-t">Inception</div>
+    <div class="cv-m">2010 · ★ 8,8</div>
+  </a>
+</div>
+"""
+
+_NEW_FILM_DETAIL_HTML = """\
+<html><head>
+<title>Braveheart (1995) Kostenlos Stream Online | HDfilme</title>
+</head><body><main class="wrap">
+<aside class="dx"><div class="scheda">
+  <h1 class="dh1">Braveheart</h1>
+  <p class="dmeta">
+    <span class="dmeta-v">
+      <span><a href="/genre/drama">Drama</a></span>
+      <span> <a href="/genre/historie">Historie</a></span>
+      <span> <a href="/genre/kriegsfilm">Kriegsfilm</a></span>
+    </span>
+    <i class="dsep">|</i>
+    <span class="dmeta-v"><span><a href="/land/usa">USA</a></span></span>
+    <i class="dsep">|</i>1995<i class="dsep">|</i>177<!-- --> Min.
+    <i class="dsep">|</i><span class="dmeta-s">★ <!-- -->8,0</span>
+  </p>
+  <div class="trama-dx">
+    <p class="dsyn">Ende des 13. Jahrhunderts ermorden britische Besatzer
+    die geliebte Frau des in Schottland lebenden William Wallace.</p>
+  </div>
+</div></aside>
+<div class="player"><iframe src="https://devideosrc.co/custom/movie/tt0112573"></iframe></div>
+</main></body></html>
+"""
+
+
 # ---------------------------------------------------------------------------
 # Parser unit tests
 # ---------------------------------------------------------------------------
@@ -212,6 +253,21 @@ class TestSearchResultParser:
         parser = _SearchResultParser("https://hdfilme.cafe")
         parser.feed(html)
         assert len(parser.results) == 0
+
+    def test_parses_cv_search_results(self) -> None:
+        parser = _SearchResultParser("https://hd-filme.today")
+        parser.feed(_CV_SEARCH_HTML)
+
+        assert [result["title"] for result in parser.results] == [
+            "Braveheart",
+            "Inception",
+        ]
+        assert (
+            parser.results[0]["url"]
+            == "https://hd-filme.today/filme1/197-braveheart-stream"
+        )
+        assert parser.results[0]["year"] == "1995"
+        assert parser.results[1]["year"] == "2010"
 
     def test_item_without_movie_title_skipped(self) -> None:
         html = """\
@@ -244,6 +300,17 @@ class TestDetailPageParser:
         assert "Krimi" in parser.genres
         assert parser.is_series is False
         assert "themoviedb.org/movie/268" in parser.tmdb_url
+
+    def test_parses_new_detail_layout(self) -> None:
+        parser = _DetailPageParser("https://hd-filme.today")
+        parser.feed(_NEW_FILM_DETAIL_HTML)
+
+        assert parser.title == "Braveheart"
+        assert parser.year == "1995"
+        assert parser.duration == "177 min"
+        assert parser.genres == ["Drama", "Historie", "Kriegsfilm"]
+        assert parser.is_series is False
+        assert parser.description.startswith("Ende des 13.")
 
     def test_parses_series_detail(self) -> None:
         parser = _DetailPageParser("https://hdfilme.cafe")
@@ -309,7 +376,7 @@ class TestDetailPageParser:
 # Plugin tests (respx)
 # ---------------------------------------------------------------------------
 
-_BASE = "https://hdfilme.cafe"
+_BASE = "https://hd-filme.today"
 _BATMAN_URL = _BASE + "/filme1/23004-batman-stream.html"
 _THE_BATMAN_URL = _BASE + "/filme1/39187-the-batman-stream.html"
 _ST_URL = _BASE + "/filme1/29460-stranger-things-stream.html"
@@ -405,7 +472,7 @@ def _search_html(*items: tuple[str, str]) -> str:
 def _mock_site(listing: str, details: dict[str, str]) -> respx.Route:
     """Route search/browse listing, detail pages and devideosrc."""
     listing_route = respx.get(
-        url__regex=rf"^{_BASE}/(\?.*|filme1/(page/\d+/)?|serien/(page/\d+/)?)$"
+        url__regex=rf"^{_BASE}/(suche.*|\?.*|filme1/(page/\d+/)?|serien/(page/\d+/)?)$"
     ).mock(
         side_effect=lambda request: httpx.Response(
             200, text="" if "/page/" in request.url.path else listing
@@ -677,7 +744,9 @@ class TestLooseMatches:
 async def test_a_search_page_that_times_out_is_a_timeout() -> None:
     """A slow site is a timeout in the plugin record, not a search without
     results."""
-    respx.get("https://hdfilme.cafe/").mock(side_effect=httpx.ReadTimeout("slow"))
+    respx.get(url__startswith=f"{_BASE}/suche").mock(
+        side_effect=httpx.ReadTimeout("slow")
+    )
     plugin = _make_plugin()
     plugin._client = httpx.AsyncClient()
     plugin._domain_verified = True

@@ -1,21 +1,20 @@
-"""hdfilme.cafe Python plugin for Scavengarr.
+"""hdfilme Python plugin for Scavengarr.
 
-Scrapes hdfilme.cafe (German streaming site, DLE-based CMS) with:
+Scrapes the German streaming site behind hdfilme.cafe with:
 - httpx for all requests (server-rendered HTML search + detail pages)
-- GET /?story={query}&do=search&subaction=search for keyword search
-- Detail page scraping for metadata (genres, year, duration, IMDb, TMDB)
+- GET /suche?q={query} for keyword search (2026-11 layout; the old DLE
+  ``/?story={query}&do=search&subaction=search`` URL is kept as a fallback)
+- Detail page scraping for metadata (genres, year, duration, description)
 - Stream links from the embedded devideosrc.co player (movies and series,
   see ``scavengarr.infrastructure.plugins.devideosrc``)
-- Category detection from detail page: /serien/ genre link → TV (5000)
+- Category detection from the detail page's /serien/ genre link → TV (5000)
 - Bounded concurrency for detail page scraping
 
-Domain: hdfilme.cafe, which redirects to hdfilme.ceo since 2026-10-05
-(2026-09-28: hdfilme.legal → .press → .party → .bid redirected to .cafe).
-No authentication required.
+Domains: hd-filme.today is the current host (2026-11); hdfilme.cafe,
+hdfilme.ceo and hd-filme.one redirect to it. The site moved from a
+Tailwind card layout to ``div.grid > a.cv`` cards; the parser accepts both.
 
-Upstream breakage 2026-09-28: the site's own keyword search answered with a
-PHP fatal error (``engine/mods/sfilter/filter.php``); on hdfilme.ceo it
-works again (2026-10-05, 25 hits for "Iron Man").
+No authentication required.
 """
 
 from __future__ import annotations
@@ -46,9 +45,9 @@ from scavengarr.infrastructure.plugins.relevance import (
 # ---------------------------------------------------------------------------
 # Configurable settings
 # ---------------------------------------------------------------------------
-# hdfilme.cafe redirects permanently to hdfilme.ceo (followed at the first
-# request, HttpxPluginBase._follow_site_move)
-_DOMAINS = ["hdfilme.cafe"]
+# Current host first; the older domains redirect here (followed at the first
+# request by HttpxPluginBase._follow_site_move).
+_DOMAINS = ["hd-filme.today", "hd-filme.one", "hdfilme.cafe", "hdfilme.ceo"]
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -89,6 +88,14 @@ class _SearchResultParser:
 
     A card's title is the text of its last ``movie-title`` link, its URL
     the last such link with an ``href``.
+
+    The 2026-11 layout uses one anchor per result in a ``div.grid``::
+
+        <a class="cv" href="/filme1/{id}-{slug}-stream" title="Title">
+          <div class="cv-art">...</div>
+          <div class="cv-t">Title</div>
+          <div class="cv-m">1995</div>
+        </a>
     """
 
     def __init__(self, base_url: str) -> None:
@@ -96,8 +103,48 @@ class _SearchResultParser:
         self._base_url = base_url
 
     def feed(self, html: str) -> None:
-        for item in outermost(LexborHTMLParser(html).css("div.item")):
+        tree = LexborHTMLParser(html)
+        cards = tree.css("div.grid a.cv")
+        if cards:
+            for card in cards:
+                self._add_cv_card(card)
+            return
+        for item in outermost(tree.css("div.item")):
             self._add_item(item)
+
+    def _add_cv_card(self, card: LexborNode) -> None:
+        """Add a 2026-11 ``a.cv`` result card."""
+        href = (card.attributes.get("href") or "").strip()
+        if not href:
+            return
+        title_node = card.css_first("div.cv-t")
+        title = title_node.text().strip() if title_node else ""
+        if not title:
+            title = (card.attributes.get("title") or "").strip()
+        if not title:
+            image = card.css_first("img[alt]")
+            title = (image.attributes.get("alt") or "").strip() if image else ""
+        if not title:
+            return
+
+        year = ""
+        year_node = card.css_first("div.cv-m")
+        if year_node:
+            match = re.search(r"\b(?:19|20)\d{2}\b", year_node.text())
+            year = match.group(0) if match else ""
+
+        url = urljoin(self._base_url, href)
+        if any(result["url"] == url for result in self.results):
+            return
+        self.results.append(
+            {
+                "title": title,
+                "url": url,
+                "year": year,
+                "duration": "",
+                "quality": "",
+            }
+        )
 
     def _add_item(self, item: LexborNode) -> None:
         title = url = ""
@@ -178,12 +225,18 @@ class _DetailPageParser:
     def feed(self, html: str) -> None:
         tree = LexborHTMLParser(html)
         self._read_headings(tree)
+        self._read_new_meta(tree)
         for line in tree.css("div.info div.border-b"):
             self._read_meta_line(line)
         self._read_links(tree)
         # The last description wins
         for prose in tree.css("div.prose"):
             self.description = _text_outside_links(prose).strip()
+        synopsis = tree.css_first("div.trama-dx p.dsyn") or tree.css_first("p.dsyn")
+        if synopsis is not None:
+            text = " ".join(synopsis.text().split())
+            if text:
+                self.description = text
 
     def _read_headings(self, tree: LexborHTMLParser) -> None:
         # The last h1 names the title
@@ -196,6 +249,29 @@ class _DetailPageParser:
             heading = h2.text().strip().lower()
             if "stream serien" in heading or "serien kostenlos" in heading:
                 self.is_series = True
+        # 2026-11: the document title carries the release year
+        title_tag = tree.css_first("title")
+        if title_tag is not None and not self.year:
+            match = re.search(r"\((\d{4})\)", title_tag.text())
+            if match:
+                self.year = match.group(1)
+
+    def _read_new_meta(self, tree: LexborHTMLParser) -> None:
+        """Read the 2026-11 ``p.dmeta`` line: genres, year, duration."""
+        meta = tree.css_first("p.dmeta")
+        if meta is None:
+            return
+        for link in meta.css("a[href*='/genre/']"):
+            self._add_genre(link)
+        text = " ".join(meta.text().split())
+        if not self.year:
+            match = re.search(r"\b(?:19|20)\d{2}\b", text)
+            if match:
+                self.year = match.group(0)
+        if not self.duration:
+            match = re.search(r"(\d+)\s*Min", text, re.I)
+            if match:
+                self.duration = f"{match.group(1)} min"
 
     def _read_links(self, tree: LexborHTMLParser) -> None:
         """TMDB and IMDb links: the last URL wins, the first IMDb id."""
@@ -227,10 +303,12 @@ class _DetailPageParser:
 
     def _add_genre(self, link: LexborNode) -> None:
         genre = link.text().strip()
-        if genre:
+        if not genre:
+            return
+        if genre not in self.genres:
             self.genres.append(genre)
-            if "/serien/" in (link.attributes.get("href") or ""):
-                self.is_series = True
+        if "/serien" in (link.attributes.get("href") or ""):
+            self.is_series = True
 
     def _read_meta_span(self, text: str) -> None:
         if not text:
@@ -274,16 +352,19 @@ class HdfilmePlugin(HttpxPluginBase):
     async def _search_page(self, query: str) -> list[dict[str, str]]:
         """Fetch search results page.
 
-        Search uses GET with DLE CMS parameters:
-        ``/?story={query}&do=search&subaction=search``
+        The 2026-11 site uses ``GET /suche?q={query}``. The legacy DLE search
+        ``/?story={query}&do=search&subaction=search`` is tried when the new
+        URL does not answer (old mirrors, a temporary regression).
 
-        Pagination is JS-based (only first page fetchable via httpx).
-        Returns up to ~24 results per page. A failure of the site raises (a
-        timeout, the site not answering), so the plugin record counts it.
+        Pagination is JS-based (only the first page is fetchable via httpx).
+        A failure of the site raises (a timeout, the site not answering), so
+        the plugin record counts it.
         """
-        html = await self._fetch_search_page(
-            "/", params={"story": query, "do": "search", "subaction": "search"}
-        )
+        html = await self._fetch_search_page("/suche", params={"q": query})
+        if html is None:
+            html = await self._fetch_search_page(
+                "/", params={"story": query, "do": "search", "subaction": "search"}
+            )
         if html is None:
             return []
 
