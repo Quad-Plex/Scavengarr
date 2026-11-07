@@ -8,7 +8,8 @@ hd-filme.today) with:
 - Detail page scraping for metadata (genres, year, duration, description)
 - Stream links from the embedded devideosrc.co player (movies and series,
   see ``scavengarr.infrastructure.plugins.devideosrc``)
-- Category detection from the detail page's /serien/ genre link → TV (5000)
+- Category detection from the detail page's /serien/ genre link, ``og:type``
+  or the devideosrc player kind → TV (5000)
 - Bounded concurrency for detail page scraping
 
 Domains: hd-filme.today is the current host (2026-11); hdfilme.cafe,
@@ -208,6 +209,7 @@ class _DetailPageParser:
     - Description from the ``prose`` div, without its links' text
     - Series detection from ``Staffel/Episode:`` in metadata, a /serien/
       genre, a TMDB ``/tv/`` link, the h2 heading or ``og:type=video.tv_show``
+      (the 2026-11 page adds ``p.dmeta`` / ``p.dsyn`` and ``og:type``)
     """
 
     def __init__(self, base_url: str) -> None:

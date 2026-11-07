@@ -226,8 +226,9 @@ class _DetailPageParser:
         <strong>Spielzeit: </strong> <div>50 min</div>
         IMDb link: <a href="https://www.imdb.com/title/ttXXXXX/">6.1/10</a>
 
-    A label's value is the first ``<div>`` or ``<span>`` after it; the last
-    value of a field, year link and IMDb link wins. The description is the
+    A label's value is the first ``<div>`` or ``<span>`` after it. The new
+    layout is read first; the legacy readers only fill fields that are still
+    empty, so the first year link and IMDb link win. The description is the
     new layout's ``p.dsyn``; otherwise the first paragraph with more than
     20 characters (legacy layout).
     """
