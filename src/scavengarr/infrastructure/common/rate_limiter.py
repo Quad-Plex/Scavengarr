@@ -1,7 +1,7 @@
 """Per-domain token-bucket rate limiter for outgoing HTTP requests.
 
-Supports adaptive AIMD (Additive Increase / Multiplicative Decrease) rate
-adjustment based on target-server feedback (429/503 → halve, success → grow).
+Supports adaptive rate adjustment based on target-server feedback (429/503 →
+halve, success → grow by 10 %).
 """
 
 from __future__ import annotations
@@ -16,15 +16,14 @@ log = structlog.get_logger(__name__)
 
 
 class TokenBucket:
-    """Token-bucket rate limiter with optional AIMD adaptive rate.
+    """Token-bucket rate limiter with an optional adaptive rate.
 
     When *adaptive* is ``True``, the rate adjusts automatically based on
-    feedback from :meth:`record_success` and :meth:`record_throttle`.  The
-    algorithm mirrors TCP congestion control:
+    feedback from :meth:`record_success` and :meth:`record_throttle`.  Both
+    steps are multiplicative (unlike TCP's AIMD, whose increase is additive):
 
-    - **Success**: rate +10% (additive increase), capped at *max_rate*.
-    - **429/503**: rate halved (multiplicative decrease), floored at
-      *min_rate*.
+    - **Success**: rate +10% (x1.1), capped at *max_rate*.
+    - **429/503**: rate halved (x0.5), floored at *min_rate*.
 
     A timeout feeds nothing back: every request to the domain shares the
     bucket, and one that fell on timeouts would slow them all for one slow
@@ -33,7 +32,7 @@ class TokenBucket:
     Args:
         rate: Tokens replenished per second (initial rate).
         burst: Maximum bucket size (allows short bursts).
-        adaptive: Enable AIMD rate adaptation.
+        adaptive: Enable the adaptive rate.
         min_rate: Lower bound for adaptive rate (rps).
         max_rate: Upper bound for adaptive rate (rps).
     """
@@ -80,10 +79,10 @@ class TokenBucket:
         self._tokens = min(self._burst, self._tokens + elapsed * self._rate)
         self._last_refill = now
 
-    # -- AIMD feedback methods ------------------------------------------
+    # -- adaptive feedback methods ------------------------------------------
 
     def record_success(self) -> None:
-        """Record a successful response — slowly increase rate (+10%)."""
+        """Record a successful response — raise the rate by 10 % (x1.1)."""
         if not self._adaptive:
             return
         self._rate = min(self._max_rate, self._rate * 1.1)
@@ -105,7 +104,7 @@ class DomainRateLimiter:
     Args:
         default_rps: Default requests-per-second per domain. 0 = unlimited.
         burst: Maximum burst size per domain.
-        adaptive: Enable AIMD rate adaptation per domain.
+        adaptive: Enable the adaptive rate per domain.
         min_rate: Lower bound for adaptive rate (rps).
         max_rate: Upper bound for adaptive rate (rps).
     """

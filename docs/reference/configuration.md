@@ -258,9 +258,9 @@ The facts a setting's description leaves out, one line per setting:
 - `http.timeout_resolve_seconds`: bounds one hoster resolution (the resolver's whole `resolve()`) and the registry's redirect and content-type requests.
 - `http.http2`: off by default because the plugin searches used more CPU with it on the production host (h2 runs in Python) and were not faster.
 - `http.user_agent`: httpx plugins and several hoster resolvers send their own browser User-Agent; a value of your own must keep a contact URL, since Wikidata answers 403 without one.
-- `http.rate_limit_rps`: the starting rate per site; with `rate_limit_adaptive` it rises 10 % with each answer other than a 429, a 503 or a challenge, up to `rate_limit_max_rps`, and halves on a 429 or 503, never below `rate_limit_min_rps`; a timeout changes nothing.
+- `http.rate_limit_rps`: the starting rate per site; with `rate_limit_adaptive` it rises 10 % with each answer other than a 429, a 503 or a challenge, up to `rate_limit_max_rps`, and halves on a 429 or 503, never below `rate_limit_min_rps`; a timeout changes nothing, and neither does a 429 or 503 that carries a cache-hit header from the CDN (`cf-cache-status` `HIT`, `STALE` or `UPDATING`): it says nothing about the site's load now.
 - `http.rate_limit_rps`: one bucket per second-level label, so `www.example.com` and `example.org` share one.
-- `http.rate_limit_rps`: link validation's checks pass the bucket and feed nothing back ([Link validation](../current/link-validation.md#concurrency)).
+- `http.rate_limit_rps`: link validation's checks go past the bucket (no token is taken) and feed nothing back ([Link validation](../current/link-validation.md#concurrency)).
 - `http.api_rate_limit_rpm`: not counted are the HLS proxy (`/api/v1/stremio/proxy/…`), `/api/v1/stremio/play/…` and the health endpoints (`healthz`, `readyz`, `stremio/health`); [Rate limiting](torznab-api.md#rate-limiting) describes the answer.
 - `validate_download_links`: `false` passes every result unchecked, and each CrawlJob then holds the result's primary link only; see [Link validation](../current/link-validation.md).
 - `validation_max_concurrent`: `stremio.auto_tune_all` overwrites it at startup ([Auto-tune](#auto-tune)).
