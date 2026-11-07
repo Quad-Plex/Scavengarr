@@ -308,16 +308,16 @@ def _words(norm: str) -> set[str]:
 def _names_title(norm_res: str, norm_ref: str) -> bool:
     """Whether the result's words are the reference title's words or a part
     of them ("Dune" for "Dune: Part One"). Without a year on both sides a
-    fuzzy score is no proof of the title: "Aliens" scores 0.909 against
-    "Alien" (backlog row 174)."""
+    fuzzy score is no proof of the title: a sequel's title one letter
+    longer scores 0.909 against the first film's (backlog row 174)."""
     words = _words(norm_res)
     return bool(words) and words <= _words(norm_ref)
 
 
 def _extends(norm_a: str, norm_b: str) -> bool:
     """Whether one title's words begin the other's longer title: a subtitle
-    or a number added ("28 Years Later: The Bone Temple" for "28 Years
-    Later", "Iron Man 2" for "Iron Man")."""
+    or a number added ("Film A: Subtitle" for "Film A", "Iron Man 2" for
+    "Iron Man")."""
     a, b = norm_a.split(), norm_b.split()
     short, long = (a, b) if len(a) < len(b) else (b, a)
     return bool(short) and len(short) < len(long) and long[: len(short)] == short

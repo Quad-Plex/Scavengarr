@@ -51,8 +51,8 @@ class ImdbFallbackClient:
     async def _fetch_suggest(self, imdb_id: str) -> dict[str, Any] | None:
         """Fetch and cache the suggest entry whose id is *imdb_id*.
 
-        An answer without that id names other titles ("Alien" in the
-        answer for "Aliens"): no entry, nothing cached. A cached entry of
+        An answer without that id names other titles (the first film in
+        the answer for its sequel): no entry, nothing cached. A cached entry of
         another id (written before this rule) counts as none."""
         cache_key = f"imdb:suggest:{imdb_id}"
         cached = await self._cache.get(cache_key)
