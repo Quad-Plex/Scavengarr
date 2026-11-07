@@ -2,9 +2,11 @@
 
 Sites like streamcloud and hdfilme embed a devideosrc player instead of
 listing hoster links themselves: ``https://devideosrc.co/movie/<imdb>`` for
-movies (hdfilme: ``/custom/movie/<imdb>``, a newer player whose classic
-page still works), ``https://devideosrc.co/serial/<imdb>`` for series. The player page
-carries a signed token and loads the hoster embeds with::
+movies (the newer ``/custom/movie/<imdb>`` still works through the classic
+page) and ``https://devideosrc.co/serial/<imdb>`` for series (the newer
+``/custom/serial/<imdb>/<season>/<episode>`` names the episode). hdfilme's
+Next.js series page carries the id in its RSC payload instead of the first
+HTML. The player page carries a signed token and loads the hoster embeds with::
 
     POST https://devideosrc.co/api/embed-links
     {"type": "movie" | "tv", "id": "<imdb>", "token": "<token>"}
@@ -51,8 +53,9 @@ _SERIAL_PLAYER_NO_ID_RE = re.compile(r"devideosrc\.co/(?:custom/)?serial/")
 _IMDB_RE = re.compile(r"devideosrc\.co/(?:embed/download|serial)/(tt\d+)")
 _IMDB_VAR_RE = re.compile(r"""var\s+imdb\s*=\s*['"](tt\d+)['"]""")
 # hdfilme's Next.js series page carries the id in its RSC payload; the quotes
-# are escaped there (\"imdb\":\"tt...\")
+# are escaped there (\"imdb\":\"tt...\", \"base\":\"/serie/...\").
 _IMDB_JSON_RE = re.compile(r'imdb\\?":\\?"(tt\d+)')
+_SERIES_BASE_RE = re.compile(r'(?:\\?"base\\?"\s*:\s*\\?"/serie/)')
 _TOKEN_RE = re.compile(r"""token:\s*["']([A-Za-z0-9_.=-]+)["']""")
 
 
@@ -77,8 +80,9 @@ def find_player(html: str) -> DevideosrcPlayer | None:
         if imdb:
             return DevideosrcPlayer(kind="tv", imdb_id=imdb.group(1))
     # hdfilme's Next.js series page has no iframe in the first HTML: the
-    # player component gets mediaId/imdb from the RSC payload.
-    if '"stagioni"' in html or "/serie/" in html:
+    # player component gets mediaId/imdb from the RSC payload. The ``base``
+    # field is the series path; a bare /serie/ nav link is not enough.
+    if _SERIES_BASE_RE.search(html):
         imdb = _IMDB_JSON_RE.search(html)
         if imdb:
             return DevideosrcPlayer(kind="tv", imdb_id=imdb.group(1))
