@@ -6,6 +6,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Fixed: A Film's Follow-Up With Another Year Is Another Film
+
+- A film one year after the reference passed the movie tolerance, and a title that adds a subtitle to the reference's scored 1.0 by the subset ratio: a series' first film was mapped to its follow-up ("28 Years Later" 2025 and "28 Years Later: The Bone Temple" 2026). A movie result with another year is now dropped (reason `year`) when its title extends a reference title by a subtitle or a number, or the other way round, and none of its candidates is a reference title itself; the same year keeps a shortened title ("Dune" 2021 for "Dune: Part One"), and series results keep the rule as it was (a result's year may be its season's).
+- Tests: `test_title_matcher.py` (`TestFollowUpTitle`: both directions, a number suffix, the same year, an alt title without the subtitle, a series season).
+
 ### Fixed: A Title Without a Year Is No Fuzzy Match
 
 - The year gate needs a year on both sides; without one the fuzzy text score alone decided, and a film's sequel passed ("Aliens" scored 0.909 against "Alien", threshold 0.7). Without a year on the result or the reference, a candidate now counts only when its words are the reference title's words or a part of them ("Dune" for "Dune: Part One"); a sequel's spelling, added words ("Alien Romulus") and typos are dropped. With both years known the rules stay as they were.

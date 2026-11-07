@@ -335,6 +335,46 @@ class TestMissingYear:
         assert score_title_match(_sr("Die Verurteilte 1994"), ref) >= 0.7
 
 
+class TestFollowUpTitle:
+    """A movie title that another title extends by a subtitle or a number
+    is another film when the years differ, even within the tolerance
+    (backlog row 174)."""
+
+    _FIRST = TitleMatchInfo(title="28 Years Later", year=2025, content_type="movie")
+    _FOLLOW_UP = TitleMatchInfo(
+        title="28 Years Later: The Bone Temple", year=2026, content_type="movie"
+    )
+
+    def test_the_first_film_is_not_its_follow_up(self) -> None:
+        result = _sr("28 Years Later: The Bone Temple (2026)")
+        assert score_title_match(result, self._FIRST) == 0.0
+
+    def test_the_follow_up_is_not_the_first_film(self) -> None:
+        result = _sr("28 Years Later", release_name="28.Years.Later.2025.German.DL")
+        assert score_title_match(result, self._FOLLOW_UP) == 0.0
+
+    def test_a_number_suffix_with_another_year_is_the_sequel(self) -> None:
+        ref = TitleMatchInfo(title="Iron Man", year=2008, content_type="movie")
+        assert score_title_match(_sr("Iron Man 2 (2009)"), ref) == 0.0
+
+    def test_the_same_year_keeps_a_shortened_title(self) -> None:
+        """Scene names drop subtitles: "Dune.2021" is "Dune: Part One"."""
+        ref = TitleMatchInfo(title="Dune: Part One", year=2021, content_type="movie")
+        assert score_title_match(_sr("Dune (2021)"), ref) >= 1.0
+
+    def test_an_alt_title_without_the_subtitle_keeps_the_film(self) -> None:
+        ref = TitleMatchInfo(
+            title="Avatar: Aufbruch nach Pandora", year=2009, alt_titles=["Avatar"]
+        )
+        assert score_title_match(_sr("Avatar (2010)"), ref) >= 1.0
+
+    def test_a_series_year_names_a_season(self) -> None:
+        """A series result's year may be its season's: no follow-up rule."""
+        ref = TitleMatchInfo(title="Breaking Bad", year=2008, content_type="series")
+        result = _sr("Breaking Bad Staffel 2 (2009)")
+        assert score_title_match(result, ref) >= 0.7
+
+
 # ---------------------------------------------------------------------------
 # filter_by_title_match
 # ---------------------------------------------------------------------------

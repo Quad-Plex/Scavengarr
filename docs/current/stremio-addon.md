@@ -243,6 +243,7 @@ The search runner counts the dropped results per plugin in the plugins' long-ter
 | Year bonus | A result year within the tolerance adds `title_year_bonus`. |
 | Year gate | A known result year outside the tolerance drops the result (reason `year`), whatever its text score. |
 | Missing year | Without a year on the result or the reference, a candidate counts only when its words are the reference title's words or a part of them (German umlaut spellings folded); a fuzzy score alone ("Aliens" for "Alien") or added words drop the result. |
+| Follow-up title | A movie result with another year than the reference, even within the tolerance, is dropped (reason `year`) when its title extends a reference title by a subtitle or a number, or a reference title extends its title, and none of its candidates is a reference title itself. |
 | Sequel penalty | Trailing sequel numbers that differ subtract `title_sequel_penalty`. |
 | Threshold | A result needs `title_match_threshold` to stay. |
 | Year tolerance | Movies get `title_year_tolerance_movie`, series `title_year_tolerance_series`. |
