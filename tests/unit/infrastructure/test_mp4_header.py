@@ -11,19 +11,34 @@ def _box(kind: bytes, payload: bytes = b"") -> bytes:
     return struct.pack(">I4s", 8 + len(payload), kind) + payload
 
 
-def _tkhd(width: int, height: int, *, version: int = 0) -> bytes:
-    """A track header: version and flags, times, track id and duration (20
-    bytes, 32 in version 1), layer, volume and matrix, then the size in
-    16.16 fixed point."""
+def _tkhd(width: int, height: int, *, version: int = 0, flags: int = 7) -> bytes:
+    """A track header: version and flags (bit 0: the track is enabled),
+    times, track id and duration (20 bytes, 32 in version 1), layer, volume
+    and matrix, then the size in 16.16 fixed point."""
     times = bytes(20 if version == 0 else 32)
     size = struct.pack(">II", width << 16, height << 16)
-    return _box(b"tkhd", bytes([version, 0, 0, 7]) + times + bytes(52) + size)
-
-
-def _trak(width: int, height: int, *, version: int = 0, media: int = 0) -> bytes:
     return _box(
-        b"trak", _tkhd(width, height, version=version) + _box(b"mdia", bytes(media))
+        b"tkhd", bytes([version]) + flags.to_bytes(3, "big") + times + bytes(52) + size
     )
+
+
+def _hdlr(handler: bytes) -> bytes:
+    """A handler box: version and flags, the predefined field, the handler
+    type and the reserved fields."""
+    return _box(b"hdlr", bytes(8) + handler + bytes(12))
+
+
+def _trak(
+    width: int,
+    height: int,
+    *,
+    version: int = 0,
+    flags: int = 7,
+    handler: bytes = b"vide",
+    media: int = 0,
+) -> bytes:
+    mdia = _box(b"mdia", _box(b"mdhd", bytes(24)) + _hdlr(handler) + bytes(media))
+    return _box(b"trak", _tkhd(width, height, version=version, flags=flags) + mdia)
 
 
 def _moov(*tracks: bytes) -> bytes:
@@ -75,6 +90,28 @@ class TestVideoSize:
 
     def test_media_data_first_names_nothing(self) -> None:
         assert video_size(_FTYP + _mdat_header(10**9) + bytes(64)) is None
+
+    def test_a_larger_cover_or_text_track_does_not_set_the_size(self) -> None:
+        head = _FTYP + _moov(
+            _trak(4000, 4000, handler=b"pict"),
+            _trak(3000, 3000, handler=b"text"),
+            _trak(1280, 720),
+        )
+        assert video_size(head) == (1280, 720)
+
+    def test_a_disabled_track_does_not_set_the_size(self) -> None:
+        head = _FTYP + _moov(_trak(3840, 2160, flags=0), _trak(1920, 1080, flags=3))
+        assert video_size(head) == (1920, 1080)
+
+    def test_a_track_without_a_handler_in_the_bytes_names_nothing(self) -> None:
+        bare = _box(b"trak", _tkhd(1920, 1080) + _box(b"mdia", bytes(100)))
+        assert video_size(_FTYP + _moov(bare)) is None
+
+    def test_a_track_header_of_a_later_version_names_nothing(self) -> None:
+        # Laid out like version 0, so that reading it as version 0 finds a size
+        trak = _trak(1920, 1080).replace(b"tkhd\x00", b"tkhd\x02")
+        assert b"tkhd\x02" in trak
+        assert video_size(_FTYP + _moov(trak)) is None
 
     def test_a_tkhd_outside_a_track_does_not_count(self) -> None:
         assert video_size(_FTYP + _box(b"udta", _tkhd(1920, 1080))) is None

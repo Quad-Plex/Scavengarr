@@ -6,6 +6,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Fixed: An MP4 File's Quality Comes From Its Video Track Only
+
+- The measured size was the largest track header of any track, so a cover or text track larger than the video, or a disabled track, could set the quality label, and a track header of a version above 1 was read with version 0's offsets. A track now counts when it is enabled, its handler is `vide` and its header is version 0 or 1; a track whose handler the 4 KiB cut names nothing.
+- Tests: `test_mp4_header.py` (a larger cover or text track, a disabled track, a track without a handler in the bytes, a header of version 2).
+
 ### Fixed: Readiness Answers 503 When the Cache Check Raises
 
 - `/api/v1/readyz` answered 500 when the cache backend's ping raised an error that is no Redis error (a `RuntimeError` "handler is closed" of a closed transport). Any exception of the probe now gives 503 with `{"status": "not_ready", "reason": "cache"}`; the log line `readyz_check_failed` names the exception's type only.
