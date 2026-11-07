@@ -85,7 +85,7 @@ After the deploy, the title's VEEV stream SHALL be a `/proxy/<id>/file` URL, and
 - **THEN** data comes within 5 s after each resume and the hashes of the spans match
 
 ### Requirement: Address-Bound And Idle-Reset Direct Streams Are Proxied
-The stream builder SHALL give an address-bound or idle-reset direct stream the URL `/api/v1/stremio/proxy/<id>/file` with the behaviour hints of the HLS proxy stream and no proxy headers, SHALL keep the playlist proxy for HLS streams, and SHALL keep `/play/<id>` for every other direct stream, other client-bound ones included.
+The stream builder SHALL give an address-bound or idle-reset direct stream the URL `/api/v1/stremio/proxy/<id>/file` with the behaviour hints of the HLS proxy stream and no proxy headers, SHALL keep the playlist proxy for HLS streams, and SHALL keep `/play/<id>` for every other direct stream, other client-bound ones included; `/play/<id>` SHALL redirect a file that is address-bound or idle-reset, stored so or resolved again so, to `/proxy/<id>/file`.
 
 #### Scenario: MixDrop file
 - **WHEN** a resolved MixDrop stream is a direct file with `address_bound` `True`
@@ -99,6 +99,10 @@ The stream builder SHALL give an address-bound or idle-reset direct stream the U
 #### Scenario: VEEV through the proxy
 - **WHEN** a VEEV stream is resolved
 - **THEN** the answer's URL ends in `/proxy/<id>/file`
+
+#### Scenario: A kept `/play` stream object of a proxied file
+- **WHEN** a player asks `/play/<id>` for a link that is address-bound or idle-reset
+- **THEN** `/play` redirects to `/proxy/<id>/file`, never to the CDN
 
 ## MODIFIED Requirements
 

@@ -368,7 +368,7 @@ A save that still raises (another repository) logs `stremio_stream_link_save_fai
 
 1. It looks up the stored link, and answers 404 when it is missing.
 2. It takes the stored video URL while it is fresh (resolved less than an hour ago), else it resolves the hoster URL again; concurrent requests for one link share one resolution, and the new video URL is saved.
-3. It answers with a 302 redirect to the video URL.
+3. It answers with a 302 redirect to the video URL. A file that is address-bound or idle-reset goes to `/api/v1/stremio/proxy/{stream_id}/file` instead: a stored link with the flag at once, unresolved (the file proxy resolves a stale one), and a link stored before the flag once its new resolution carries it, under the id of that resolution (a player's own link for a client-bound hoster). A stream object the player kept with a `/play` URL (Continue Watching, the next episode's autoplay) thus plays through the file proxy too (`stremio_play_proxied`).
 4. When the hoster gives no video or only echoes the embed page, the stored video URL is still tried, since its CDN may still serve it; it answers 502 only without a stored video URL, never with a redirect to an embed page.
 5. `HEAD` answers like `GET`, since a streaming server asks with `HEAD` first.
 
@@ -444,7 +444,7 @@ The route shares the HLS proxy's path, so its rate-limit exemption and query mas
 8. When the CDN refuses the file with 403, 404 or 410, the hoster URL resolves once more past the resolver's cache and the file is fetched from the new URL; it answers 502 when that fails, when the hoster gives no video anymore, or when the CDN cannot be reached.
 9. `HEAD` answers the status and the headers with no body.
 
-A link stored before its resolver declared `address_bound` or `idle_reset` plays through `/play` until its hoster resolves again.
+A link stored before its resolver declared `address_bound` or `idle_reset` goes to the CDN through `/play` until its hoster resolves again; from then on `/play` redirects it to this route ([Play](#play), step 3).
 Each request is recorded on the HLS proxy's metrics with `kind="file"`, the bytes sent included, and the log lines name the CDN's domain only.
 A resume is recorded as `file_resume` by hoster and reason, `resumed`, `gave_up`, `cut` or `error` ([metrics](../reference/metrics.md)).
 A player that pauses stops reading, and the CDN's connection sits idle meanwhile: the VEEV CDN and Vinovo's reset such a connection, and the resume after the pause carries the playback on.

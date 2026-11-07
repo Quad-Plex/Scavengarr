@@ -391,6 +391,12 @@ async def stremio_play(
         3. Redirect to the video URL (302); 502 when the hoster gives no
            video (never a redirect to an embed page).
 
+    A file the stream builder sends through the file proxy (``_proxied_file``:
+    address-bound or idle-reset) is redirected to the proxy's ``FILE_NAME``
+    path instead, so a stream object kept from before its flag plays through
+    the proxy too: a stored one at once (the proxy resolves it when stale),
+    one whose new resolution carries the flag under the id of that link.
+
     HEAD answers like GET: a streaming server asks with HEAD first.
     """
     state = cast(AppState, request.app.state)
@@ -403,6 +409,8 @@ async def stremio_play(
     if link is None:
         log.warning("stremio_play_not_found", stream_id=stream_id)
         return _error_json(404, "stream expired or not found")
+    if _proxied_file(link):
+        return _to_file_proxy(request, link)
 
     current = await links.current(link, request.headers)
     if current is None:
@@ -413,6 +421,8 @@ async def stremio_play(
             url=link.hoster_url,
         )
         return _error_json(502, "could not extract video URL from hoster")
+    if _proxied_file(current):
+        return _to_file_proxy(request, current)
 
     log.info(
         "stremio_play_resolved",
@@ -423,6 +433,28 @@ async def stremio_play(
     )
     return RedirectResponse(
         url=current.video_url,
+        status_code=302,
+        headers=_CORS_HEADERS,
+    )
+
+
+def _proxied_file(link: CachedStreamLink) -> bool:
+    """Whether *link* is a file the file proxy serves: a video URL, no HLS,
+    address-bound or idle-reset (``build_stream_from_resolved``)."""
+    return (
+        bool(link.video_url)
+        and not link.is_hls
+        and (link.address_bound or link.idle_reset)
+    )
+
+
+def _to_file_proxy(request: Request, link: CachedStreamLink) -> RedirectResponse:
+    """``/play``'s redirect of a proxied file to the file proxy's path of
+    *link*."""
+    log.info("stremio_play_proxied", stream_id=link.stream_id, hoster=link.hoster)
+    base = str(request.base_url).rstrip("/")
+    return RedirectResponse(
+        url=f"{base}/api/v1/stremio/proxy/{link.stream_id}/{FILE_NAME}",
         status_code=302,
         headers=_CORS_HEADERS,
     )
@@ -799,8 +831,7 @@ async def _file_link(
     link = await _stored_link(links, stream_id, current=True)
     if isinstance(link, JSONResponse):
         return link
-    proxied = link.address_bound or link.idle_reset
-    if not link.video_url or link.is_hls or not proxied:
+    if not _proxied_file(link):
         log.warning("hls_proxy_not_a_file", stream_id=stream_id)
         return _error_json(400, "stream is not a proxied file")
     return link

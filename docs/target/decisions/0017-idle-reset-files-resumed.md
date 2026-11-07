@@ -36,7 +36,7 @@ Segments of HLS streams keep their one resume or restart.
 - Every proxied file gets the resume rules, address-bound ones included; a resume whose CDN needs longer than the stall timeout for its first byte gives up after three attempts, and the player's own new request gets the opening request's 60 s.
 - The stall timeout must stay well under the 60 s a player's proxy waits for a byte: three attempts of 10 s and 3 s of waits end within 33 s, and a new resolution after a refusal adds the resolution (within the resolve bound, 15 s) and one more attempt of 10 s.
 - Resumes and give-ups are counted per hoster and reason (`scavengarr_file_resume_total`), with the time a resume took.
-- A link stored before its resolver declared `idle_reset` keeps `/play` until its hoster resolves again.
+- A link stored before its resolver declared `idle_reset` goes to the CDN through `/play` until its hoster resolves again; then `/play` redirects it to the file proxy, as it does every flagged file a player kept as a `/play` stream object.
 
 ## Alternatives
 

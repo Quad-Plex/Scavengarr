@@ -110,7 +110,7 @@ Such a resolver sets `address_bound = True`, the registry stamps it on the strea
 A CDN that resets a connection that stops reading cuts a file whenever the player pauses with a full buffer, since Stremio's streaming server does not reconnect inside a response.
 veevcdn reset 10 of 10 connections left idle for 30 to 300 s, and a new `Range` request at the offset answered 206.
 Such a resolver sets `idle_reset = True`, the registry stamps it like `address_bound`, and the file goes through the same file proxy, which resumes it after every interruption with the headers it was resolved with ([0017](../target/decisions/0017-idle-reset-files-resumed.md)).
-VEEV is client-bound and idle-reset: its streams play through the file proxy, which sends the browser values it resolved with, and `/play` resolves per player only for a link stored before the flag.
+VEEV is client-bound and idle-reset: its streams play through the file proxy, which sends the browser values it resolved with, and `/play` resolves per player only for a link stored before the flag, whose player's resolution carries the flag and goes to the file proxy.
 
 ### CDN checks
 

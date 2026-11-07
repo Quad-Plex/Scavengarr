@@ -981,6 +981,162 @@ class TestPlayEndpoint:
             "https://streamtape.com/v/abc", "streamtape", refresh=False
         )
 
+    @pytest.mark.parametrize("flag", ["address_bound", "idle_reset"])
+    def test_play_sends_a_kept_proxied_file_to_the_file_proxy(self, flag: str) -> None:
+        """A stream object the player kept from before the flag (continue
+        watching, the next episode's autoplay) asks ``/play``: its file goes
+        through the file proxy, unresolved, and never to the CDN."""
+        link = replace(
+            CachedStreamLink(
+                stream_id="kept1",
+                hoster_url="https://veev.to/e/abc",
+                hoster="veev",
+                video_url="https://cdn.veev.example/v.mp4",
+                resolved_at=time.time(),
+            ),
+            **{flag: True},
+        )
+        repo = AsyncMock()
+        repo.get = AsyncMock(side_effect=lambda sid: link if sid == "kept1" else None)
+        registry = AsyncMock()
+        registry.bound_headers = MagicMock(
+            return_value=("user-agent", "accept-language")
+        )
+        client = TestClient(
+            _make_app(stream_link_repo=repo, hoster_resolver_registry=registry),
+            follow_redirects=False,
+        )
+
+        resp = client.get(
+            f"{_PREFIX}/stremio/play/kept1",
+            headers={"User-Agent": "UA", "Accept-Language": "de"},
+        )
+
+        assert resp.status_code == 302
+        assert resp.headers["location"] == (
+            f"http://testserver{_PREFIX}/stremio/proxy/kept1/{FILE_NAME}"
+        )
+        assert resp.headers.get("access-control-allow-origin") == "*"
+        registry.resolve.assert_not_awaited()
+        registry.resolve_for_client.assert_not_awaited()
+
+    @pytest.mark.parametrize("flag", ["address_bound", "idle_reset"])
+    def test_play_keeps_the_redirect_of_a_flagged_hls_stream(self, flag: str) -> None:
+        """The file proxy serves no HLS (400): a flagged HLS link keeps the
+        redirect to its playlist."""
+        link = replace(
+            CachedStreamLink(
+                stream_id="hls2",
+                hoster_url="https://vinovo.to/e/abc",
+                hoster="vinovo",
+                video_url="https://cdn.vinovo.example/master.m3u8",
+                is_hls=True,
+                resolved_at=time.time(),
+            ),
+            **{flag: True},
+        )
+        repo = AsyncMock()
+        repo.get = AsyncMock(return_value=link)
+        client = TestClient(
+            _make_app(stream_link_repo=repo, hoster_resolver_registry=AsyncMock()),
+            follow_redirects=False,
+        )
+
+        resp = client.get(f"{_PREFIX}/stremio/play/hls2")
+
+        assert resp.status_code == 302
+        assert resp.headers["location"] == "https://cdn.vinovo.example/master.m3u8"
+
+    def test_play_sends_a_file_resolved_again_with_the_flag_to_the_file_proxy(
+        self,
+    ) -> None:
+        """A link stored before the flag is stale: its new resolution carries
+        the flag, and the player goes to the file proxy."""
+        link = CachedStreamLink(
+            stream_id="old1",
+            hoster_url="https://mixdrop.ag/e/xyz",
+            hoster="mixdrop",
+            video_url="https://s-delivery.mxdcontent.example/old.mp4",
+            resolved_at=time.time() - 7200,
+        )
+        repo = AsyncMock()
+        repo.get = AsyncMock(return_value=link)
+        registry = AsyncMock()
+        registry.resolve = AsyncMock(
+            return_value=ResolvedStream(
+                video_url="https://s-delivery.mxdcontent.example/new.mp4",
+                address_bound=True,
+            )
+        )
+        client = TestClient(
+            _make_app(stream_link_repo=repo, hoster_resolver_registry=registry),
+            follow_redirects=False,
+        )
+
+        resp = client.get(f"{_PREFIX}/stremio/play/old1")
+
+        assert resp.status_code == 302
+        assert resp.headers["location"] == (
+            f"http://testserver{_PREFIX}/stremio/proxy/old1/{FILE_NAME}"
+        )
+        assert repo.save.await_args.args[0].address_bound is True
+
+    @patch(
+        "scavengarr.interfaces.api.stremio.router.stream_file", new_callable=AsyncMock
+    )
+    def test_play_sends_a_players_own_flagged_link_to_the_file_proxy(
+        self, mock_stream: AsyncMock
+    ) -> None:
+        """A client-bound hoster's link stored before the flag, still fresh:
+        the player's own resolution carries the flag, and the redirect names
+        that link's id, which the file proxy then plays."""
+        stored = CachedStreamLink(
+            stream_id="veev2",
+            hoster_url="https://veev.to/e/abc",
+            hoster="veev",
+            video_url="https://cdn.veev.example/stored.mp4",
+            video_headers=json.dumps({"User-Agent": "UA"}),
+            resolved_at=time.time(),
+        )
+        links: dict[str, CachedStreamLink] = {stored.stream_id: stored}
+
+        async def _save(link: CachedStreamLink) -> None:
+            links[link.stream_id] = link
+
+        repo = AsyncMock()
+        repo.get = AsyncMock(side_effect=links.get)
+        repo.save = AsyncMock(side_effect=_save)
+        registry = AsyncMock()
+        registry.bound_headers = MagicMock(
+            return_value=("user-agent", "accept-language")
+        )
+        registry.supported_hosters = ["veev"]
+        registry.resolve_for_client = AsyncMock(
+            return_value=ResolvedStream(
+                video_url="https://cdn.veev.example/own.mp4",
+                headers={"User-Agent": "UA", "Accept-Language": "de"},
+                idle_reset=True,
+            )
+        )
+        mock_stream.return_value = _file_answer()
+        app = _make_app(stream_link_repo=repo, hoster_resolver_registry=registry)
+        app.state.config.stremio = StremioConfig()
+        client = TestClient(app, follow_redirects=False)
+
+        resp = client.get(
+            f"{_PREFIX}/stremio/play/veev2",
+            headers={"User-Agent": "UA", "Accept-Language": "de"},
+        )
+        played = client.get(resp.headers["location"])
+
+        own = next(link for sid, link in links.items() if sid != "veev2")
+        assert resp.status_code == 302
+        assert resp.headers["location"] == (
+            f"http://testserver{_PREFIX}/stremio/proxy/{own.stream_id}/{FILE_NAME}"
+        )
+        assert played.status_code == 200
+        assert mock_stream.await_args.args[1] == "https://cdn.veev.example/own.mp4"
+
 
 # ---------------------------------------------------------------------------
 # Full stream resolution flow (router -> use case -> response)

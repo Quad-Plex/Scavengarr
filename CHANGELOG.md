@@ -6,6 +6,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Fixed: A Kept `/play` Stream Object of a Proxied File Plays Through the File Proxy
+
+- A stream object the player kept with a `/play` URL (Continue Watching, the next episode's autoplay) redirected an address-bound or idle-reset file to its CDN, past the file proxy and its resumes, also after a new resolution had stamped the flag. `/play` now redirects such a file to `/api/v1/stremio/proxy/<id>/file`: a stored link with the flag at once, a link stored before the flag once its new resolution carries it (a player's own link for a client-bound hoster). Other files keep the redirect to the CDN.
+- Tests: `test_stremio_endpoint.py` (a kept address-bound and idle-reset link, a stale link resolved again with the flag, a client-bound player's own flagged link played through the file proxy).
+
 ### Fixed: A File's Resume Must Name the Opening Answer's File Size
 
 - A resume of a proxied file went on with any 206 from the next byte. After a new resolution the URL can lead to another variant of the file (another size), whose bytes from the same offset were spliced onto the player's file. A resume now goes on only when its `Content-Range` names the file size of the opening answer (its `Content-Length` for a 200, its `Content-Range` size for a 206; no check when that size is `*`); another size closes the answer and counts as a failed attempt.

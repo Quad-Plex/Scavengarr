@@ -35,7 +35,7 @@ A file's body is only read while the player reads: during a pause the generator 
 
 ## Migration Plan
 
-Links stored before the flag read `idle_reset` as false and keep `/play` until their hoster resolves again (at most an hour). Rollback: revert the commits and deploy; stored links with the flag then play through `/play` again, since the old code ignores the field.
+Links stored before the flag read `idle_reset` as false and go to the CDN through `/play` until their hoster resolves again (at most an hour); `/play` then redirects them, as every flagged file, to the file proxy. Rollback: revert the commits and deploy; stored links with the flag then play through `/play` again, since the old code ignores the field.
 
 ## Open Questions
 
