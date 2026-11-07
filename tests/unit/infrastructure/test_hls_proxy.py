@@ -1418,6 +1418,67 @@ class TestFileResume:
         assert seen[2].headers["User-Agent"] == "bound-again"
         assert seen[2].headers["Range"] == f"bytes={self._PIECE}-{total - 1}"
 
+    @pytest.mark.parametrize("status", [404, 410])
+    async def test_a_resume_refused_with_404_or_410_resolves_again(
+        self, status: int
+    ) -> None:
+        refused: list[int] = []
+
+        async def _refresh(status: int) -> tuple[str, dict[str, str]] | None:
+            refused.append(status)
+            return "https://s-eri-2.veevcdn.example/v/abc.mp4?t=new", {}
+
+        total = 2 * self._PIECE
+        answers = [
+            httpx.Response(
+                200,
+                headers={"Content-Length": str(total)},
+                stream=_CutChunks([b"a" * self._PIECE]),
+            ),
+            httpx.Response(status),
+            self._cut(self._PIECE, total, _Chunks([b"b" * self._PIECE])),
+        ]
+
+        body, seen, _, error = await self._play(answers, FileResume(refresh=_refresh))
+
+        assert error is None
+        assert body == b"a" * self._PIECE + b"b" * self._PIECE
+        assert refused == [status]
+        assert seen[2].url.host == "s-eri-2.veevcdn.example"
+
+    async def test_a_server_error_before_a_refusal_leaves_the_new_resolution_to_it(
+        self,
+    ) -> None:
+        """A 500 resolves nothing again; the 403 after it at the same offset
+        still gets the one new resolution. The refresh answers as
+        ``StremioLinks.after_refusal`` does: nothing for a 500."""
+        refused: list[int] = []
+
+        async def _refresh(status: int) -> tuple[str, dict[str, str]] | None:
+            refused.append(status)
+            if status not in (403, 404, 410):
+                return None
+            return "https://s-eri-2.veevcdn.example/v/abc.mp4?t=new", {}
+
+        total = 2 * self._PIECE
+        answers = [
+            httpx.Response(
+                200,
+                headers={"Content-Length": str(total)},
+                stream=_CutChunks([b"a" * self._PIECE]),
+            ),
+            httpx.Response(500),
+            httpx.Response(403),
+            self._cut(self._PIECE, total, _Chunks([b"b" * self._PIECE])),
+        ]
+
+        body, seen, _, error = await self._play(answers, FileResume(refresh=_refresh))
+
+        assert error is None
+        assert body == b"a" * self._PIECE + b"b" * self._PIECE
+        assert refused == [403]
+        assert seen[3].url.host == "s-eri-2.veevcdn.example"
+
     async def test_a_resume_of_another_size_after_a_new_resolution_is_not_spliced(
         self,
     ) -> None:

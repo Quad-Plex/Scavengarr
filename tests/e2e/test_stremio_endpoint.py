@@ -2456,6 +2456,84 @@ class TestProxyFileEndpoint:
         assert asyncio.run(refresh(500)) is None
 
     @patch(f"{_PROXY_MODULE}.stream_file", new_callable=AsyncMock)
+    def test_the_file_after_an_opening_refusal_resumes_by_the_new_links_rules(
+        self, mock_stream: AsyncMock
+    ) -> None:
+        """The transfer from the new URL keeps the setting's stall timeout
+        and the hoster label, and its refused resumes resolve the new link."""
+        link = _make_file_link()
+        new = ResolvedStream(
+            video_url="https://s-delivery.mxdcontent.example/v/abc.mp4?s=new",
+            address_bound=True,
+        )
+        mock_stream.side_effect = [_refused(link.video_url, 410), _file_answer()]
+        app = self._app(link, new)
+        app.state.config.stremio = StremioConfig(file_stall_timeout_seconds=7.0)
+        app.state.hoster_resolver_registry.supported_hosters = ["mixdrop"]
+
+        resp = TestClient(app).get(self._FILE)
+
+        assert resp.status_code == 200
+        resume = mock_stream.await_args.kwargs["resume"]
+        assert resume.stall_timeout == 7.0
+        assert resume.hoster == "mixdrop"
+        spy = AsyncMock(return_value=None)
+        app.state.stremio_links.after_refusal = spy
+        assert asyncio.run(resume.refresh(403)) is None
+        assert spy.await_args.args[0].video_url == new.video_url
+        assert spy.await_args.args[1] == 403
+
+    @patch(f"{_PROXY_MODULE}.stream_file", new_callable=AsyncMock)
+    def test_a_refused_resume_takes_no_hls_and_no_link_without_a_video(
+        self, mock_stream: AsyncMock
+    ) -> None:
+        mock_stream.return_value = _file_answer()
+        link = _make_file_link()
+        app = self._app(link)
+        app.state.config.stremio = StremioConfig()
+        TestClient(app).get(self._FILE)
+        refresh = mock_stream.await_args.kwargs["resume"].refresh
+        hls = replace(
+            link, video_url="https://cdn.mixdrop.example/master.m3u8", is_hls=True
+        )
+        app.state.stremio_links.after_refusal = AsyncMock(
+            side_effect=[hls, replace(link, video_url="")]
+        )
+
+        assert asyncio.run(refresh(403)) is None
+        assert asyncio.run(refresh(403)) is None
+
+    @patch(f"{_PROXY_MODULE}.stream_file", new_callable=AsyncMock)
+    def test_a_second_refused_resume_resolves_the_link_the_first_gave(
+        self, mock_stream: AsyncMock
+    ) -> None:
+        mock_stream.return_value = _file_answer()
+        link = _make_file_link()
+        app = self._app(link)
+        app.state.config.stremio = StremioConfig()
+        TestClient(app).get(self._FILE)
+        refresh = mock_stream.await_args.kwargs["resume"].refresh
+        first = replace(
+            link,
+            video_url="https://s-delivery.mxdcontent.example/v/abc.mp4?s=1",
+            video_headers=json.dumps({"User-Agent": "one"}),
+        )
+        second = replace(
+            link,
+            video_url="https://s-delivery.mxdcontent.example/v/abc.mp4?s=2",
+            video_headers="",
+        )
+        spy = AsyncMock(side_effect=[first, second])
+        app.state.stremio_links.after_refusal = spy
+
+        assert asyncio.run(refresh(403)) == (first.video_url, {"User-Agent": "one"})
+        assert asyncio.run(refresh(404)) == (second.video_url, {})
+        assert [call.args for call in spy.await_args_list] == [
+            (link, 403),
+            (first, 404),
+        ]
+
+    @patch(f"{_PROXY_MODULE}.stream_file", new_callable=AsyncMock)
     def test_a_refusal_that_persists_is_502(self, mock_stream: AsyncMock) -> None:
         link = _make_file_link()
         new = ResolvedStream(video_url=link.video_url, address_bound=True)
