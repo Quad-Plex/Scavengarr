@@ -1,6 +1,7 @@
 """hdfilme Python plugin for Scavengarr.
 
-Scrapes the German streaming site behind hdfilme.cafe with:
+Scrapes the German streaming site of the hdfilme network (currently
+hd-filme.today) with:
 - httpx for all requests (server-rendered HTML search + detail pages)
 - GET /suche?q={query} for keyword search (2026-11 layout; the old DLE
   ``/?story={query}&do=search&subaction=search`` URL is kept as a fallback)
@@ -60,7 +61,7 @@ _CATEGORY_PATH_MAP: dict[int, str] = {
 
 
 class _SearchResultParser:
-    """Parse hdfilme.cafe search result cards (selectolax).
+    """Parse hdfilme search result cards (selectolax).
 
     Each result card has this structure::
 
@@ -180,7 +181,7 @@ class _SearchResultParser:
 
 
 class _DetailPageParser:
-    """Parse hdfilme.cafe film/series detail page (selectolax).
+    """Parse hdfilme film/series detail page (selectolax).
 
     Stream links are not on the page; they come from the embedded
     devideosrc player.
@@ -206,7 +207,7 @@ class _DetailPageParser:
     - IMDb URL from ``<a href="imdb.com/title/...">``
     - Description from the ``prose`` div, without its links' text
     - Series detection from ``Staffel/Episode:`` in metadata, a /serien/
-      genre, a TMDB ``/tv/`` link or the h2 heading
+      genre, a TMDB ``/tv/`` link, the h2 heading or ``og:type=video.tv_show``
     """
 
     def __init__(self, base_url: str) -> None:
@@ -225,6 +226,7 @@ class _DetailPageParser:
     def feed(self, html: str) -> None:
         tree = LexborHTMLParser(html)
         self._read_headings(tree)
+        self._read_og_type(tree)
         self._read_new_meta(tree)
         for line in tree.css("div.info div.border-b"):
             self._read_meta_line(line)
@@ -256,6 +258,15 @@ class _DetailPageParser:
             if match:
                 self.year = match.group(1)
 
+    def _read_og_type(self, tree: LexborHTMLParser) -> None:
+        """The new pages mark a series with ``og:type=video.tv_show``."""
+        meta = tree.css_first("meta[property='og:type']")
+        if meta is None:
+            return
+        content = (meta.attributes.get("content") or "").lower()
+        if "video.tv" in content or "video.episode" in content:
+            self.is_series = True
+
     def _read_new_meta(self, tree: LexborHTMLParser) -> None:
         """Read the 2026-11 ``p.dmeta`` line: genres, year, duration."""
         meta = tree.css_first("p.dmeta")
@@ -269,9 +280,10 @@ class _DetailPageParser:
             if match:
                 self.year = match.group(0)
         if not self.duration:
-            match = re.search(r"(\d+)\s*Min", text, re.I)
+            match = re.search(r"(?:(\d+)\s*Std\.?\s*)?(\d+)\s*Min", text, re.I)
             if match:
-                self.duration = f"{match.group(1)} min"
+                minutes = int(match.group(1) or 0) * 60 + int(match.group(2))
+                self.duration = f"{minutes} min"
 
     def _read_links(self, tree: LexborHTMLParser) -> None:
         """TMDB and IMDb links: the last URL wins, the first IMDb id."""
@@ -307,7 +319,8 @@ class _DetailPageParser:
             return
         if genre not in self.genres:
             self.genres.append(genre)
-        if "/serien" in (link.attributes.get("href") or ""):
+        href = link.attributes.get("href") or ""
+        if re.search(r"/serien(?:/|$)", href):
             self.is_series = True
 
     def _read_meta_span(self, text: str) -> None:
@@ -341,7 +354,7 @@ def _text_outside_links(node: LexborNode) -> str:
 
 
 class HdfilmePlugin(HttpxPluginBase):
-    """Python plugin for hdfilme.cafe using httpx."""
+    """Python plugin for the hdfilme network using httpx."""
 
     name = "hdfilme"
     provides = "stream"
@@ -526,7 +539,7 @@ class HdfilmePlugin(HttpxPluginBase):
         season: int | None = None,
         episode: int | None = None,
     ) -> list[SearchResult]:
-        """Search hdfilme.cafe and return results with stream links."""
+        """Search the hdfilme network and return results with stream links."""
         if category is None and season is not None:
             category = 5000  # a season request is a series request
         if category is not None:

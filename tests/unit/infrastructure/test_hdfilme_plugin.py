@@ -1,4 +1,4 @@
-"""Tests for the hdfilme.cafe Python plugin (httpx-based)."""
+"""Tests for the hdfilme Python plugin (httpx-based)."""
 
 from __future__ import annotations
 
@@ -340,6 +340,12 @@ class TestDetailPageParser:
     def test_series_detected_by_tmdb_tv_url(self) -> None:
         html = '<a href="https://www.themoviedb.org/tv/12345">TMDB</a>'
         parser = _DetailPageParser("https://hdfilme.cafe")
+        parser.feed(html)
+        assert parser.is_series is True
+
+    def test_series_detected_by_og_type(self) -> None:
+        html = '<meta property="og:type" content="video.tv_show">'
+        parser = _DetailPageParser("https://hd-filme.today")
         parser.feed(html)
         assert parser.is_series is True
 
