@@ -23,7 +23,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 Instructions for developers and AI assistants working on Scavengarr. Details live in `docs/`; this file holds the rules that apply to every change.
 
-This is the single instruction file for every coding agent (the AGENTS.md convention); there is no `CLAUDE.md`. Claude Code reads `AGENTS.md` automatically when no `CLAUDE.md` exists (v2.1.277 or newer).
+This is the single instruction file for every coding agent (the AGENTS.md convention); `CLAUDE.md` is a symlink. Claude Code reads `AGENTS.md` automatically when no `CLAUDE.md` exists (v2.1.277 or newer).
 
 ---
 
