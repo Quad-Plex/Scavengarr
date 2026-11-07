@@ -6,6 +6,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Fixed: A Title Without a Year Is No Fuzzy Match
+
+- The year gate needs a year on both sides; without one the fuzzy text score alone decided, and a film's sequel passed ("Aliens" scored 0.909 against "Alien", threshold 0.7). Without a year on the result or the reference, a candidate now counts only when its words are the reference title's words or a part of them ("Dune" for "Dune: Part One"); a sequel's spelling, added words ("Alien Romulus") and typos are dropped. With both years known the rules stay as they were.
+- Tests: `test_title_matcher.py` (`TestMissingYear`; the extra-words and sequel-penalty cases now carry a year where they test the penalties).
+
 ### Fixed: The IMDb Fallback Takes Only the Requested Id's Entry
 
 - Without a TMDB key, a suggest answer that did not list the requested id gave the title and year of its first entry, another film (the first film for its sequel), and cached it for 24 h. The answer now gives no title (`imdb_suggest_id_missing`) and nothing is cached; a cached entry of another id is not served.

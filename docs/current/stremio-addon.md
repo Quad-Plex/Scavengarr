@@ -242,6 +242,7 @@ The search runner counts the dropped results per plugin in the plugins' long-ter
 | Extra words | The set ratio loses `title_extra_words_penalty` when the result adds words to the reference title, not when it only drops words. |
 | Year bonus | A result year within the tolerance adds `title_year_bonus`. |
 | Year gate | A known result year outside the tolerance drops the result (reason `year`), whatever its text score. |
+| Missing year | Without a year on the result or the reference, a candidate counts only when its words are the reference title's words or a part of them (German umlaut spellings folded); a fuzzy score alone ("Aliens" for "Alien") or added words drop the result. |
 | Sequel penalty | Trailing sequel numbers that differ subtract `title_sequel_penalty`. |
 | Threshold | A result needs `title_match_threshold` to stay. |
 | Year tolerance | Movies get `title_year_tolerance_movie`, series `title_year_tolerance_series`. |

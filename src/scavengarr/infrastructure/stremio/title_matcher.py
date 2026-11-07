@@ -43,6 +43,9 @@ _YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
 # Excludes 4-digit years like "2008".
 _SEQUEL_RE = re.compile(r"\s+(\d{1,2})\s*$")
 
+# The German umlaut spellings "ae", "oe", "ue" ("Ueber" for "Über")
+_DIGRAPH_RE = re.compile(r"([aou])e")
+
 # An IMDb title id: "tt0388629", or the digits alone (a site's API may store
 # the number, which loses the leading zeros)
 _IMDB_RE = re.compile(r"(?:tt)?(\d+)")
@@ -296,6 +299,21 @@ def _wrong_kind(result: SearchResult, animation: bool | None) -> bool:
     return kind is not None and kind != animation
 
 
+def _words(norm: str) -> set[str]:
+    """The words of a normalised title, the German umlaut spellings folded
+    ("ueber" and "uber", the transliteration of "über", are one word)."""
+    return {_DIGRAPH_RE.sub(r"\1", word) for word in norm.split()}
+
+
+def _names_title(norm_res: str, norm_ref: str) -> bool:
+    """Whether the result's words are the reference title's words or a part
+    of them ("Dune" for "Dune: Part One"). Without a year on both sides a
+    fuzzy score is no proof of the title: "Aliens" scores 0.909 against
+    "Alien" (backlog row 174)."""
+    words = _words(norm_res)
+    return bool(words) and words <= _words(norm_ref)
+
+
 def _identity_verdict(
     result: SearchResult, reference: TitleMatchInfo
 ) -> TitleScore | None:
@@ -370,9 +388,12 @@ def score_title(
         _normalize(_strip_year(title))
         for title in [reference.title, *reference.alt_titles]
     ]
+    year_known = reference.year is not None and result_year is not None
     best = 0.0
     for norm_res in candidates:
         for norm_ref in norm_refs:
+            if not year_known and not _names_title(norm_res, norm_ref):
+                continue
             s = _score_single_title(
                 norm_ref,
                 norm_res,

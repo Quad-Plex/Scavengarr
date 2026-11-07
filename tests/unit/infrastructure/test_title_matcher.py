@@ -302,6 +302,39 @@ class TestScoreTitleMatch:
         assert score >= 1.0
 
 
+class TestMissingYear:
+    """Without a year on both sides the year gate cannot decide: a result
+    counts only by a title whose words are the reference's or a part of
+    them (backlog row 174). "Aliens" scored 0.909 against "Alien" by text
+    alone."""
+
+    def test_result_without_year_is_not_its_sequel(self) -> None:
+        ref = TitleMatchInfo(title="Alien", year=1979)
+        assert score_title(_sr("Aliens"), ref) == TitleScore(0.0, "score")
+
+    def test_reference_without_year_is_not_its_sequel(self) -> None:
+        ref = TitleMatchInfo(title="Alien")
+        assert score_title(_sr("Aliens 1986"), ref) == TitleScore(0.0, "score")
+
+    def test_result_without_year_keeps_the_same_title(self) -> None:
+        ref = TitleMatchInfo(title="Alien", year=1979)
+        assert score_title_match(_sr("Alien"), ref) == pytest.approx(1.0)
+
+    def test_result_without_year_keeps_a_shortened_title(self) -> None:
+        ref = TitleMatchInfo(title="Dune: Part One", year=2021)
+        assert score_title_match(_sr("Dune"), ref) == pytest.approx(1.0)
+
+    def test_result_without_year_that_adds_words_is_dropped(self) -> None:
+        ref = TitleMatchInfo(title="Alien", year=1979)
+        result = _sr("Alien Romulus")
+        assert filter_by_title_match([result], ref).matching == []
+
+    def test_a_known_year_keeps_the_text_rules(self) -> None:
+        """With both years known the gate decides; the text rules stay."""
+        ref = TitleMatchInfo(title="Die Verurteilten", year=1994)
+        assert score_title_match(_sr("Die Verurteilte 1994"), ref) >= 0.7
+
+
 # ---------------------------------------------------------------------------
 # filter_by_title_match
 # ---------------------------------------------------------------------------
@@ -765,9 +798,9 @@ class TestConfigurablePenalties:
         assert score == pytest.approx(1.5)
 
     def test_custom_sequel_penalty(self) -> None:
-        ref = TitleMatchInfo(title="Iron Man")
-        score_default = score_title_match(_sr("Iron Man 2"), ref)
-        score_light = score_title_match(_sr("Iron Man 2"), ref, sequel_penalty=0.1)
+        ref = TitleMatchInfo(title="Iron Man 2")
+        score_default = score_title_match(_sr("Iron Man"), ref)
+        score_light = score_title_match(_sr("Iron Man"), ref, sequel_penalty=0.1)
         assert score_light > score_default
 
     def test_custom_year_tolerance(self) -> None:
@@ -1082,8 +1115,8 @@ class TestExtraWords:
         self, reference: str, title: str
     ) -> None:
         ref = TitleMatchInfo(title=reference, content_type="series")
-        # 1.0 - 0.35 extra words
-        assert score_title_match(_sr(title), ref) == pytest.approx(0.65)
+        # without a year, a result that adds words names another title
+        assert score_title_match(_sr(title), ref) == 0.0
 
     def test_other_series_with_wrong_year_rejected(self) -> None:
         sr = _sr("Dark.Matter.2024.S01E01.German.DL.Atmos.1080p.ATVP.WEB.H265-ZeroTwo")
@@ -1107,9 +1140,10 @@ class TestExtraWords:
 
     def test_custom_extra_words_penalty(self) -> None:
         score = score_title_match(
-            _sr("Dark Gathering"), self._DARK, extra_words_penalty=0.0
+            _sr("Dark Gathering (2017)"), self._DARK, extra_words_penalty=0.0
         )
-        assert score == pytest.approx(1.0)
+        # 1.0 with no penalty + 0.2 year bonus
+        assert score == pytest.approx(1.2)
 
     def test_filter_keeps_only_the_series(self) -> None:
         results = [
