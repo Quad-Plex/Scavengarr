@@ -1,10 +1,11 @@
 """streamcloud Python plugin for Scavengarr.
 
-Scrapes streamcloud.download (German streaming site, DLE-based CMS) with:
+Scrapes the German streaming site behind streamcloud.download with:
 - httpx for all requests (server-rendered HTML, no JS challenges)
-- GET /?do=search&subaction=search&story={query} for keyword search
-- POST-based pagination via search_start={N}&result_from={offset}
-  (12 results/page, up to 84 pages for ~1000 results)
+- GET /suche?q={query} for keyword search (2026-11 layout; the old DLE
+  ``/?do=search&subaction=search&story={query}`` URL is kept as a fallback)
+- Pagination via ``?page={N}`` on the new layout, or the legacy POST with
+  search_start/result_from when an old mirror answers
 - Detail page scraping for metadata; stream/hoster links come from the
   embedded devideosrc player (movie or series, see
   ``scavengarr.infrastructure.plugins.devideosrc``)
@@ -12,10 +13,10 @@ Scrapes streamcloud.download (German streaming site, DLE-based CMS) with:
 - Category filtering (Movies/TV/Anime)
 - Bounded concurrency for detail page scraping
 
-Multi-domain support: streamcloud.download (primary), streamcloud.plus
-(fallback; it, .press, .uno and .forum redirect to the primary, so a new
-primary is followed). streamcloud.my is a gambling site since 2026.
-No authentication required.
+Domains: streamcloud.date is the current host (2026-11);
+streamcloud.download and streamcloud.plus redirect to it. The site moved
+from the DLE ``div.item.cf`` cards to ``div.grid > a.cv`` cards; the parser
+accepts both. No authentication required.
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ from scavengarr.infrastructure.plugins.relevance import (
 # ---------------------------------------------------------------------------
 # Configurable settings
 # ---------------------------------------------------------------------------
-_DOMAINS = ["streamcloud.download", "streamcloud.plus"]
+_DOMAINS = ["streamcloud.date", "streamcloud.download", "streamcloud.plus"]
 _RESULTS_PER_PAGE = 12
 _MAX_PAGES = 84  # 12 results/page → 84 pages for ~1000
 
@@ -128,15 +129,64 @@ class _SearchResultParser:
     The (last) thumb link names the detail page, the first title link is
     the fallback; the (last) title link's text names the result, the
     thumb's ``title`` is the fallback.
+
+    The 2026-11 layout uses one anchor per result in a ``div.grid``::
+
+        <a class="cv" href="/filme/{id}-{slug}-stream-deutsch" title="Title">
+          <div class="cv-art">...</div>
+          <div class="cv-t">Title</div>
+          <div class="cv-m">1995 · ★ 8,0</div>
+        </a>
     """
 
     def __init__(self, base_url: str) -> None:
         self.results: list[dict[str, str]] = []
         self._base_url = base_url
+        # "cv" (2026-11) has no pagination; "legacy" uses the DLE POST
+        self.layout = "legacy"
 
     def feed(self, html: str) -> None:
-        for card in LexborHTMLParser(html).css("div.item.cf"):
+        tree = LexborHTMLParser(html)
+        cards = tree.css("div.grid a.cv")
+        if cards:
+            self.layout = "cv"
+            for card in cards:
+                self._add_cv_card(card)
+            return
+        for card in tree.css("div.item.cf"):
             self._add_card(card)
+
+    def _add_cv_card(self, card: LexborNode) -> None:
+        """Add a 2026-11 ``a.cv`` result card."""
+        href = (card.attributes.get("href") or "").strip()
+        if not href:
+            return
+        title_node = card.css_first("div.cv-t")
+        title = title_node.text().strip() if title_node else ""
+        if not title:
+            title = (card.attributes.get("title") or "").strip()
+        if not title:
+            image = card.css_first("img[alt]")
+            title = (image.attributes.get("alt") or "").strip() if image else ""
+        if not title:
+            return
+
+        year = ""
+        year_node = card.css_first("div.cv-m")
+        if year_node:
+            match = re.search(r"\b(?:19|20)\d{2}\b", year_node.text())
+            year = match.group(0) if match else ""
+
+        url = urljoin(self._base_url, href)
+        if any(result["url"] == url for result in self.results):
+            return
+        self.results.append(
+            {
+                "title": _clean_title(title),
+                "url": url,
+                "year": year,
+            }
+        )
 
     def _add_card(self, card: LexborNode) -> None:
         title_links = card.css("div.f_title a")
@@ -184,6 +234,7 @@ class _DetailPageParser:
 
     def __init__(self, base_url: str) -> None:
         self._base_url = base_url
+        self.title = ""
         self.year = ""
         self.genres: list[str] = []
         self.description = ""
@@ -197,6 +248,7 @@ class _DetailPageParser:
 
     def feed(self, html: str) -> None:
         tree = LexborHTMLParser(html)
+        self._read_new_layout(tree)
         self._read_fields(tree)
         # Year link: <a href="/xfsearch/2008">2008</a>
         for link in tree.css("a[href*='/xfsearch/']"):
@@ -208,14 +260,69 @@ class _DetailPageParser:
             imdb_id = re.search(r"(tt\d+)", link.attributes.get("href") or "")
             if imdb_id:
                 self.imdb_id = imdb_id.group(1)
-            rating = re.search(r"(\d+\.?\d*)/10", link.text().strip())
+            rating = re.search(r"(\d+[.,]?\d*)/10", link.text().strip())
             if rating:
-                self.imdb_rating = rating.group(1)
-        for paragraph in tree.css("p"):
-            text = paragraph.text().strip()
-            if len(text) > 20:
+                self.imdb_rating = rating.group(1).replace(",", ".")
+        if not self.description:
+            for paragraph in tree.css("p"):
+                text = paragraph.text().strip()
+                if len(text) > 20:
+                    self.description = text
+                    break
+
+    def _read_new_layout(self, tree: LexborHTMLParser) -> None:
+        """Read the 2026-11 detail page: h1, ``div.sc-riga`` rows, ``p.dsyn``."""
+        title = tree.css_first("h1.sc-h1") or tree.css_first("h1")
+        if title is not None:
+            self.title = title.text().strip()
+        for row in tree.css("div.sc-riga"):
+            self._read_new_row(row)
+        synopsis = tree.css_first("div.sc-info p.dsyn") or tree.css_first("p.dsyn")
+        if synopsis is not None:
+            text = " ".join(synopsis.text().split())
+            if text:
                 self.description = text
-                break
+        imdb = tree.css_first("a.sc-imdb[href*='imdb.com/title/']")
+        if imdb is not None:
+            self._read_new_imdb(imdb)
+
+    def _read_new_row(self, row: LexborNode) -> None:
+        """Read one ``div.sc-riga`` label/value row."""
+        label_node = row.css_first("strong")
+        value_node = row.css_first("div")
+        if label_node is None or value_node is None:
+            return
+        label = label_node.text().strip().rstrip(":").lower()
+        if label == "genres":
+            self._read_new_genres(value_node)
+        elif label in ("veröffentlicht", "veroeffentlicht", "jahr"):
+            match = re.search(r"\b(?:19|20)\d{2}\b", value_node.text())
+            if match:
+                self.year = match.group(0)
+        elif label == "spielzeit":
+            match = re.search(r"(\d+)\s*min", value_node.text(), re.I)
+            if match:
+                self.runtime = f"{match.group(1)} min"
+
+    def _read_new_genres(self, value_node: LexborNode) -> None:
+        genres: list[str] = []
+        for link in value_node.css("a[href*='/genre/']"):
+            genre = link.text().strip()
+            if genre and genre not in genres:
+                genres.append(genre)
+        if not genres:
+            raw = " ".join(value_node.text().split())
+            genres = [genre.strip() for genre in raw.split("/") if genre.strip()]
+        if genres:
+            self.genres = genres
+
+    def _read_new_imdb(self, imdb: LexborNode) -> None:
+        match = re.search(r"(tt\d+)", imdb.attributes.get("href") or "")
+        if match:
+            self.imdb_id = match.group(1)
+        rating = re.search(r"(\d+[.,]?\d*)\s*/\s*10", imdb.text())
+        if rating:
+            self.imdb_rating = rating.group(1).replace(",", ".")
 
     def _read_fields(self, tree: LexborHTMLParser) -> None:
         """Values of the "Genres:" and "Spielzeit:" labels."""
@@ -243,6 +350,8 @@ class StreamcloudPlugin(HttpxPluginBase):
     _domains = _DOMAINS
     # One database behind hdfilme, streamcloud and streamkiste (same news ids)
     mirror_group = "hdfilme"
+    # Set by _search_page: the 2026-11 /suche layout has no next page
+    _search_layout = "legacy"
 
     async def _search_page(
         self,
@@ -259,34 +368,44 @@ class StreamcloudPlugin(HttpxPluginBase):
             search_start={page}, result_from={(page-1)*12+1}, story={query}
         """
         if page == 1:
-            params: dict[str, str] = {
-                "do": "search",
-                "subaction": "search",
-                "story": query,
-            }
             # The first page raises on a failure of the site, so the plugin
             # record counts it; a later page that fails ends the pagination
-            html = await self._fetch_search_page("/", params=params)
+            html = await self._fetch_search_page("/suche", params={"q": query})
+            if html is None:
+                # legacy DLE search, still answered by old mirrors
+                html = await self._fetch_search_page(
+                    "/",
+                    params={
+                        "do": "search",
+                        "subaction": "search",
+                        "story": query,
+                    },
+                )
         else:
-            form_data = {
-                "do": "search",
-                "subaction": "search",
-                "search_start": str(page),
-                "full_search": "0",
-                "result_from": str((page - 1) * _RESULTS_PER_PAGE + 1),
-                "story": query,
-            }
-            resp = await self._safe_fetch(
-                f"{self.base_url}/index.php?do=search",
-                method="POST",
-                context="search",
-                data=form_data,
+            html = await self._fetch_search_page(
+                "/suche", params={"q": query, "page": str(page)}
             )
-            html = resp.text if resp is not None else None
+            if html is None:
+                form_data = {
+                    "do": "search",
+                    "subaction": "search",
+                    "search_start": str(page),
+                    "full_search": "0",
+                    "result_from": str((page - 1) * _RESULTS_PER_PAGE + 1),
+                    "story": query,
+                }
+                resp = await self._safe_fetch(
+                    f"{self.base_url}/index.php?do=search",
+                    method="POST",
+                    context="search",
+                    data=form_data,
+                )
+                html = resp.text if resp is not None else None
         if html is None:
             return []
 
         parser = await parse_page(_SearchResultParser(self.base_url), html)
+        self._search_layout = parser.layout
 
         self._log.info(
             "streamcloud_search_page",
@@ -302,13 +421,22 @@ class StreamcloudPlugin(HttpxPluginBase):
     ) -> list[dict[str, str]]:
         """Fetch search results with pagination up to _max_results."""
         all_results: list[dict[str, str]] = []
+        seen: set[str] = set()
 
         for page_num in range(1, _MAX_PAGES + 1):
             results = await self._search_page(query, page_num)
             if not results:
                 break
-            all_results.extend(results)
+            # The new /suche layout may ignore ?page= and answer the first
+            # page again: stop when a page adds no new URL.
+            fresh = [result for result in results if result["url"] not in seen]
+            if not fresh:
+                break
+            seen.update(result["url"] for result in fresh)
+            all_results.extend(fresh)
             if len(all_results) >= self.effective_max_results:
+                break
+            if self._search_layout == "cv":
                 break
 
         return all_results[: self.effective_max_results]
@@ -354,7 +482,7 @@ class StreamcloudPlugin(HttpxPluginBase):
             self._log.debug("streamcloud_no_streams", url=detail_url)
             return None
 
-        title = _clean_title(result.get("title", ""))
+        title = parser.title or _clean_title(result.get("title", ""))
         year = parser.year or result.get("year", "")
         genres = parser.genres
         category = stream_category(genres, is_series=is_series)

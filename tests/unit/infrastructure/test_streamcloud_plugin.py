@@ -36,7 +36,7 @@ _clean_title = _mod._clean_title
 _detect_series = _mod._detect_series
 
 
-_BASE = "https://streamcloud.download"
+_BASE = "https://streamcloud.date"
 
 
 def _make_plugin() -> object:
@@ -57,24 +57,24 @@ _SEARCH_HTML = """\
 
 <div class="item cf item-video post-1515412 post type-post" style="position:relative;">
   <div class="thumb" title="Justice League">
-    <a href="https://streamcloud.download/7244-justice-league-stream-deutsch.html">\
+    <a href="/7244-justice-league-stream-deutsch.html">\
 <img src="/uploads/thumb/poster.jpg" alt="Justice League"><span class="overlay">\
 </span></a>
   </div>
   <div class="f_title">\
-<a href="https://streamcloud.download/7244-justice-league-stream-deutsch.html">\
+<a href="/7244-justice-league-stream-deutsch.html">\
 Justice League</a></div>
   <div class="f_year">2017</div>
 </div>
 
 <div class="item cf item-video post-1515412 post type-post" style="position:relative;">
   <div class="thumb" title="The Batman">
-    <a href="https://streamcloud.download/39187-the-batman-stream-deutsch.html">\
+    <a href="/39187-the-batman-stream-deutsch.html">\
 <img src="/uploads/thumb/poster2.jpg" alt="The Batman"><span class="overlay">\
 </span></a>
   </div>
   <div class="f_title">\
-<a href="https://streamcloud.download/39187-the-batman-stream-deutsch.html">\
+<a href="/39187-the-batman-stream-deutsch.html">\
 The Batman</a></div>
   <div class="f_year">2004</div>
 </div>
@@ -122,6 +122,45 @@ _EMPTY_DETAIL_HTML = """\
 <h1>No Streams Available</h1>
 <p>Short text.</p>
 </main></body></html>
+"""
+
+_CV_SEARCH_HTML = """\
+<div class="grid">
+  <a class="cv" href="/filme/197-braveheart-stream-deutsch" title="Braveheart">
+    <div class="cv-art"><img src="/poster.jpg" alt="Braveheart"></div>
+    <div class="cv-t">Braveheart</div>
+    <div class="cv-m">1995 · ★ 8,0</div>
+  </a>
+  <a class="cv" href="/filme/198-inception-stream-deutsch" title="Inception">
+    <div class="cv-t">Inception</div>
+    <div class="cv-m">2010 · ★ 8,8</div>
+  </a>
+</div>
+"""
+
+_NEW_MOVIE_DETAIL_HTML = """\
+<html><body><main class="wrap"><div class="sc-fila">
+  <div class="player"><iframe src="https://devideosrc.co/movie/tt0112573"></iframe></div>
+  <h1 class="sc-h1">Braveheart</h1>
+  <div class="sc-sub">
+    <span class="sc-hd">HD | Deutsch</span>
+    <a class="sc-imdb" href="https://www.imdb.com/title/tt0112573/">
+      <span class="sc-star">★</span> <!-- -->8,0<!-- -->/10
+    </a>
+  </div>
+  <div class="sc-info">
+    <p class="dsyn">Ende des 13. Jahrhunderts ermorden britische Besatzer
+    die geliebte Frau des in Schottland lebenden William Wallace.</p>
+    <div class="sc-riga"><strong>Genres:</strong><div>
+      <span><a href="/genre/drama">Drama</a></span>
+      <span> / <a href="/genre/historie">Historie</a></span>
+    </div></div>
+    <div class="sc-riga"><strong>Veröffentlicht:</strong><div>
+      <a href="/jahr/1995">1995</a>
+    </div></div>
+    <div class="sc-riga"><strong>Spielzeit:</strong><div>177 min</div></div>
+  </div>
+</div></main></body></html>
 """
 
 _MOVIE_PLAYER = "https://devideosrc.co/movie/tt0974015"
@@ -196,7 +235,15 @@ def _embed_links(request: httpx.Request) -> httpx.Response:
 
 
 def _mock_site(search_html: str, details: dict[str, str]) -> None:
-    """Route search (page 1 GET, page 2+ POST), detail pages and devideosrc."""
+    """Route search (page 1, page 2+), detail pages and devideosrc."""
+
+    def _suche(request: httpx.Request) -> httpx.Response:
+        # The 2026-11 layout has no page 2 in these fixtures.
+        return httpx.Response(
+            200, text="" if "page=" in str(request.url) else search_html
+        )
+
+    respx.get(url__startswith=_BASE + "/suche").mock(side_effect=_suche)
     respx.get(_BASE + "/").respond(200, text=search_html)
     respx.post(_BASE + "/index.php").respond(200, text="")
     for url, html in details.items():
@@ -287,6 +334,21 @@ class TestSearchResultParser:
         parser.feed("<html><body>No results</body></html>")
         assert len(parser.results) == 0
 
+    def test_parses_cv_search_results(self) -> None:
+        parser = _SearchResultParser("https://streamcloud.date")
+        parser.feed(_CV_SEARCH_HTML)
+
+        assert [result["title"] for result in parser.results] == [
+            "Braveheart",
+            "Inception",
+        ]
+        assert (
+            parser.results[0]["url"]
+            == "https://streamcloud.date/filme/197-braveheart-stream-deutsch"
+        )
+        assert parser.results[0]["year"] == "1995"
+        assert parser.results[1]["year"] == "2010"
+
     def test_card_without_title_skipped(self) -> None:
         html = """\
         <div class="item cf item-video">
@@ -330,6 +392,19 @@ class TestDetailPageParser:
         assert parser.imdb_id == "tt0974015"
         assert parser.imdb_rating == "6.1"
         assert parser.description.startswith("Bruce Wayne")
+        assert parser.is_series is False
+
+    def test_new_detail_layout(self) -> None:
+        parser = _DetailPageParser(_BASE)
+        parser.feed(_NEW_MOVIE_DETAIL_HTML)
+
+        assert parser.title == "Braveheart"
+        assert parser.year == "1995"
+        assert parser.genres == ["Drama", "Historie"]
+        assert parser.runtime == "177 min"
+        assert parser.imdb_id == "tt0112573"
+        assert parser.imdb_rating == "8.0"
+        assert parser.description.startswith("Ende des 13.")
         assert parser.is_series is False
 
     def test_series_metadata_in_spans(self) -> None:
@@ -384,6 +459,18 @@ class TestStreamcloudPluginSearch:
 
         # "Justice League" is a loose match of the site's search, not scraped
         assert {r.title for r in results} == {"The Batman"}
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_cv_layout_is_not_paginated(self) -> None:
+        plug = _make_plugin()
+        _mock_site(_CV_SEARCH_HTML, {})
+
+        await plug.search("Braveheart")
+        await plug.cleanup()
+
+        suche_calls = [c for c in respx.calls if "/suche" in str(c.request.url)]
+        assert len(suche_calls) == 1
 
     @respx.mock
     @pytest.mark.asyncio
@@ -595,10 +682,10 @@ class TestStreamcloudDomainFallback:
         # First domain fails, second succeeds
         ok_resp = MagicMock()
         ok_resp.status_code = 200
-        ok_resp.url = httpx.URL("https://streamcloud.plus/")
+        ok_resp.url = httpx.URL("https://streamcloud.download/")
         mock_client.head = AsyncMock(
             side_effect=[
-                httpx.ConnectError("streamcloud.download down"),
+                httpx.ConnectError("streamcloud.date down"),
                 ok_resp,
             ]
         )
@@ -606,11 +693,11 @@ class TestStreamcloudDomainFallback:
         plug._client = mock_client
         await plug._verify_domain()
 
-        assert plug.base_url == "https://streamcloud.plus"
+        assert plug.base_url == "https://streamcloud.download"
         assert plug._domain_verified is True
         # streamcloud.my is a gambling site now (2026-10-01): never a fallback
         tried = [str(c.args[0]) for c in mock_client.head.await_args_list]
-        assert "streamcloud.plus" in tried[1]
+        assert "streamcloud.download" in tried[1]
 
     @pytest.mark.asyncio
     async def test_no_domain_reachable(self) -> None:
@@ -624,7 +711,7 @@ class TestStreamcloudDomainFallback:
         with pytest.raises(PluginUnreachableError):
             await plug._verify_domain()
 
-        assert plug.base_url == "https://streamcloud.download"
+        assert plug.base_url == "https://streamcloud.date"
         assert plug._domain_verified is False
 
     @pytest.mark.asyncio
@@ -708,7 +795,7 @@ class TestLooseMatches:
 async def test_a_search_page_that_times_out_is_a_timeout() -> None:
     """A slow site is a timeout in the plugin record, not a search without
     results."""
-    respx.get("https://streamcloud.download/").mock(
+    respx.get(url__startswith=f"{_BASE}/suche").mock(
         side_effect=httpx.ReadTimeout("slow")
     )
     plugin = _make_plugin()
