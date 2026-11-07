@@ -82,7 +82,7 @@ _FILE_HEADERS = (
     "content-encoding",
 )
 # A 206 answer's span: ``bytes <first>-<last>/<size or *>``
-_CONTENT_RANGE_RE = re.compile(r"bytes (\d+)-(\d+)/(?:\d+|\*)")
+_CONTENT_RANGE_RE = re.compile(r"bytes (\d+)-(\d+)/(\d+|\*)")
 # The player's request headers a proxied file forwards to the CDN
 _RANGE_HEADERS = ("Range", "If-Range")
 
@@ -777,34 +777,41 @@ def _file_headers(resp: httpx.Response) -> dict[str, str]:
     return passed
 
 
-def _file_span(resp: httpx.Response) -> tuple[int, int | None]:
-    """The first byte's offset in the file and the bytes the answer promises:
-    from ``Content-Range`` for a 206, from a framing ``Content-Length`` for
-    a 200; ``(0, None)`` when the answer promises no length (chunked, 416)."""
+def _file_span(resp: httpx.Response) -> tuple[int, int | None, int | None]:
+    """The first byte's offset in the file, the bytes the answer promises
+    and the file's size: from ``Content-Range`` for a 206 (no size for
+    ``*``), from a framing ``Content-Length`` for a 200; ``(0, None, None)``
+    when the answer promises no length (chunked, 416)."""
     match = _CONTENT_RANGE_RE.fullmatch(resp.headers.get("content-range", ""))
     if resp.status_code == 206 and match is not None:
-        first, last = int(match.group(1)), int(match.group(2))
-        return first, last - first + 1
+        first, last, size = match.groups()
+        return int(first), int(last) - int(first) + 1, _size(size)
     length = resp.headers.get("content-length", "")
     if (
         resp.status_code == 200
         and "transfer-encoding" not in resp.headers
         and length.isdigit()
     ):
-        return 0, int(length)
-    return 0, None
+        return 0, int(length), int(length)
+    return 0, None, None
+
+
+def _size(text: str) -> int | None:
+    """A ``Content-Range`` size, ``None`` for ``*``."""
+    return int(text) if text.isdigit() else None
 
 
 @dataclass
 class _Transfer:
     """A proxied file's or segment's progress: the first byte's offset in
     the file, the bytes the answer promised (``None``: no length), the
-    bytes sent and those of a restarted answer still to skip (the player
-    has them)."""
+    file's size the answer named (``None``: none), the bytes sent and those
+    of a restarted answer still to skip (the player has them)."""
 
     url: str
     first: int
     expected: int | None
+    size: int | None = None
     segment: bool = False
     sent: int = 0
     resumed: bool = False
@@ -946,6 +953,20 @@ def _refreshed_headers(
     return fresh
 
 
+def _continues(fresh: httpx.Response, first: int, transfer: _Transfer) -> bool:
+    """Whether a file's resume answer *fresh* goes on with the byte *first*:
+    a 206 from that byte whose ``Content-Range`` names the file's size of
+    the opening answer, when that answer named one. A new resolution can
+    lead to another variant of the file (another size), whose bytes from
+    the same offset are no part of the file the player has."""
+    start, _, size = _file_span(fresh)
+    return (
+        fresh.status_code == 206
+        and start == first
+        and (transfer.size is None or size == transfer.size)
+    )
+
+
 async def _resume_file(
     http_client: httpx.AsyncClient,
     request_headers: dict[str, str],
@@ -962,7 +983,8 @@ async def _resume_file(
     The rest of the promised span is asked for from the next byte
     (``Range``, ``Accept-Encoding: identity``, the request's other headers
     kept, ``If-Range`` included: a changed file answers 200) and goes on
-    only with a 206 from that byte. An attempt's answer and its first byte
+    only with a 206 from that byte of the file's size the opening answer
+    named (``_continues``). An attempt's answer and its first byte
     share one stall timeout (``_Transfer.due``), the wait for the CDN
     semaphore and the client's retries included. At one
     offset at most ``len(_FILE_RESUME_WAITS)`` attempts run, each after its
@@ -1012,7 +1034,7 @@ async def _resume_file(
             except (httpx.HTTPError, TimeoutError) as exc:
                 failure = exc
                 continue
-            if fresh.status_code == 206 and _file_span(fresh)[0] == first:
+            if _continues(fresh, first, transfer):
                 transfer.due = due
                 transfer.resumes += 1
                 transfer.resumed = True
@@ -1123,7 +1145,7 @@ async def _cdn_body(
     generator is already running", production 2026-10-07).
     """
     encoded = segment and "content-encoding" in resp.headers
-    span = (0, None) if encoded else _file_span(resp)
+    span = (0, None, None) if encoded else _file_span(resp)
     transfer = _Transfer(url, *span, segment=segment)
     try:
         if head:

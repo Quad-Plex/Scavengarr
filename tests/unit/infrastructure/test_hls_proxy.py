@@ -1415,6 +1415,62 @@ class TestFileResume:
         assert seen[2].headers["User-Agent"] == "bound-again"
         assert seen[2].headers["Range"] == f"bytes={self._PIECE}-{total - 1}"
 
+    async def test_a_resume_of_another_size_after_a_new_resolution_is_not_spliced(
+        self,
+    ) -> None:
+        """The new URL answers from the right byte, but its total names
+        another variant of the file: the answer is closed unread and counts
+        as a failed attempt; the next one of the opening's size goes on."""
+
+        async def _refresh(status: int) -> tuple[str, dict[str, str]] | None:
+            return "https://s-eri-2.veevcdn.example/v/abc.mp4?t=new", {}
+
+        total = 2 * self._PIECE
+        other = _Chunks([b"x" * self._PIECE])
+        answers = [
+            httpx.Response(
+                200,
+                headers={"Content-Length": str(total)},
+                stream=_CutChunks([b"a" * self._PIECE]),
+            ),
+            httpx.Response(403),
+            self._cut(self._PIECE, 3 * self._PIECE, other),
+            self._cut(self._PIECE, total, _Chunks([b"b" * self._PIECE])),
+        ]
+
+        body, seen, logs, error = await self._play(
+            answers, FileResume(refresh=_refresh)
+        )
+
+        assert error is None
+        assert body == b"a" * self._PIECE + b"b" * self._PIECE
+        assert other.closed and not other.read
+        assert len(seen) == 4
+        resumed = [log for log in logs if log["event"] == "hls_proxy_file_resumed"]
+        assert [log["attempt"] for log in resumed] == [2]
+
+    async def test_a_resume_of_another_size_at_the_same_url_is_not_spliced(
+        self,
+    ) -> None:
+        total = 2 * self._PIECE
+        answers = [
+            httpx.Response(
+                206,
+                headers={"Content-Range": f"bytes 0-{total - 1}/{total}"},
+                stream=_CutChunks([b"a" * self._PIECE]),
+            ),
+            *(
+                self._cut(self._PIECE, 5 * self._PIECE, _Chunks([b"x" * self._PIECE]))
+                for _ in range(3)
+            ),
+        ]
+
+        body, seen, _, error = await self._play(answers)
+
+        assert isinstance(error, FileCut)
+        assert body == b"a" * self._PIECE
+        assert len(seen) == 4
+
     async def test_a_second_refusal_at_the_offset_counts_as_an_attempt(self) -> None:
         refused: list[int] = []
 

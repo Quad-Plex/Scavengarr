@@ -6,6 +6,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Fixed: A File's Resume Must Name the Opening Answer's File Size
+
+- A resume of a proxied file went on with any 206 from the next byte. After a new resolution the URL can lead to another variant of the file (another size), whose bytes from the same offset were spliced onto the player's file. A resume now goes on only when its `Content-Range` names the file size of the opening answer (its `Content-Length` for a 200, its `Content-Range` size for a 206; no check when that size is `*`); another size closes the answer and counts as a failed attempt.
+- Tests: `test_hls_proxy.py` (another size after a new resolution, another size at the same URL).
+
 ### Changed: The File Proxy's Docs Name Every Resume Outcome and Every Idle-Reset Route
 
 - The stage `file_resume` also ends `cut` (the player left while the resume ran) and `error` (an exception other than a transport error or the attempt's timeout, such as a new resolution that raised); `docs/reference/metrics.md` and the Stremio addon doc name all four outcomes.

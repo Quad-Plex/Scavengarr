@@ -20,7 +20,7 @@ An address-bound file through the file proxy had the same reset in a pause of 12
 A hoster resolver whose CDN resets a connection that stops reading must declare it (`idle_reset = True`), and the registry stamps the flag on the resolved stream.
 Stremio gets such a file through `/api/v1/stremio/proxy/<id>/file`, as an address-bound one, and VEEV is the first hoster that declares it.
 The file proxy resumes a proxied file after every interruption for as long as the response runs: a reset or a body that ends before the promised length is asked for again at once from the next byte, and a body that sends no byte for `stremio.file_stall_timeout_seconds` (10 s) is asked for again the same way.
-A resume must start at the next byte (206 from that offset), otherwise it counts as a failed attempt.
+A resume must start at the next byte (206 from that offset) of a file of the size the opening answer named, otherwise it counts as a failed attempt: a new resolution can lead to another variant of the file.
 At one offset at most three attempts run, after waits of 0, 1 and 2 s, each bounded by the stall timeout; the count starts again once bytes flow.
 The stall timeout times a piece of 64 KiB, not a byte: a body slower than 64 KiB per timeout counts as stalled while bytes flow.
 A refusal (403, 404, 410) during a resume resolves the hoster URL again once per offset, past the resolver's cache, and one more attempt, not counted against the three, goes on from the new URL with its headers.

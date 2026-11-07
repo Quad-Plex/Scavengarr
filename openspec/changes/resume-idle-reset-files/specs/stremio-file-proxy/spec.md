@@ -27,10 +27,10 @@ The file proxy SHALL resume a proxied file with a promised length after every in
 - **THEN** the proxy asks again from the next byte
 
 ### Requirement: Resumes Keep The Bytes Exact
-A resume SHALL ask for `bytes=<next byte>-<last byte of the span>` with the transfer's headers and `Accept-Encoding: identity`, SHALL go on only with a 206 that starts at that byte, and the bytes sent SHALL equal the file's bytes of the span, none doubled or skipped.
+A resume SHALL ask for `bytes=<next byte>-<last byte of the span>` with the transfer's headers and `Accept-Encoding: identity`, SHALL go on only with a 206 that starts at that byte and whose `Content-Range` names the file's size of the opening answer (when that answer named one), and the bytes sent SHALL equal the file's bytes of the span, none doubled or skipped.
 
 #### Scenario: A resume from another byte
-- **WHEN** the CDN answers a resume with a 206 that starts at another byte, or with 200
+- **WHEN** the CDN answers a resume with a 206 that starts at another byte or names another file size, or with 200
 - **THEN** the answer is closed and the attempt counts as failed
 
 #### Scenario: Bytes across a resume
