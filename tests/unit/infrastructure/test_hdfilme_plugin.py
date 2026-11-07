@@ -312,6 +312,12 @@ class TestDetailPageParser:
         assert parser.is_series is False
         assert parser.description.startswith("Ende des 13.")
 
+    def test_parses_hour_long_runtime(self) -> None:
+        parser = _DetailPageParser("https://hd-filme.today")
+        parser.feed('<p class="dmeta">Drama | 2023 | 2 Std. 5 Min.</p>')
+
+        assert parser.duration == "125 min"
+
     def test_parses_series_detail(self) -> None:
         parser = _DetailPageParser("https://hdfilme.cafe")
         parser.feed(_SERIES_DETAIL_HTML)

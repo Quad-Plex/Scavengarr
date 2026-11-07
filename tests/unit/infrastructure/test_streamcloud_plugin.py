@@ -414,6 +414,18 @@ class TestDetailPageParser:
 
         assert parser.is_series is True
 
+    def test_new_rows_without_h1_class_use_the_bare_h1(self) -> None:
+        html = (
+            "<h1>Braveheart</h1>"
+            '<div class="sc-riga"><strong>Genres:</strong>'
+            '<div><a href="/genre/drama">Drama</a></div></div>'
+        )
+        parser = _DetailPageParser(_BASE)
+        parser.feed(html)
+
+        assert parser.title == "Braveheart"
+        assert parser.genres == ["Drama"]
+
     def test_legacy_detail_does_not_use_site_logo_as_title(self) -> None:
         fixture = (
             Path(__file__).resolve().parents[2]
