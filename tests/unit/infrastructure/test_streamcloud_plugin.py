@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -407,6 +408,29 @@ class TestDetailPageParser:
         assert parser.description.startswith("Ende des 13.")
         assert parser.is_series is False
 
+    def test_series_from_og_type(self) -> None:
+        parser = _DetailPageParser(_BASE)
+        parser.feed('<meta property="og:type" content="video.tv_show">')
+
+        assert parser.is_series is True
+
+    def test_legacy_detail_does_not_use_site_logo_as_title(self) -> None:
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "fixtures"
+            / "html"
+            / "streamcloud"
+            / "detail-oppenheimer.html.gz"
+        )
+        html = gzip.decompress(fixture.read_bytes()).decode("utf-8")
+
+        parser = _DetailPageParser("https://streamcloud.download")
+        parser.feed(html)
+
+        # The legacy page's first <h1> is its logo; the search result names it.
+        assert parser.title == ""
+        assert parser.year == "2023"
+
     def test_series_metadata_in_spans(self) -> None:
         parser = _DetailPageParser(_BASE)
         parser.feed(_SERIES_DETAIL_HTML)
@@ -459,6 +483,33 @@ class TestStreamcloudPluginSearch:
 
         # "Justice League" is a loose match of the site's search, not scraped
         assert {r.title for r in results} == {"The Batman"}
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_legacy_detail_keeps_the_search_title(self) -> None:
+        base = Path(__file__).resolve().parents[2] / "fixtures" / "html" / "streamcloud"
+        search = gzip.decompress((base / "search-oppenheimer.html.gz").read_bytes())
+        detail = gzip.decompress((base / "detail-oppenheimer.html.gz").read_bytes())
+        detail_urls = (
+            "https://streamcloud.download/"
+            "33792-to-end-all-war-oppenheimer-the-atomic-bomb-stream-deutsch.html",
+            "https://streamcloud.download/23684-oppenheimer-stream-deutsch.html",
+        )
+        _mock_site(
+            search.decode("utf-8"),
+            {url: detail.decode("utf-8") for url in detail_urls},
+        )
+        respx.get("https://devideosrc.co/movie/tt15398776").respond(
+            200, text=_player_html("movie", "tt15398776")
+        )
+
+        plug = _make_plugin()
+        results = await plug.search("Oppenheimer")
+        await plug.cleanup()
+
+        assert results
+        assert all(result.title != "StreamCloud" for result in results)
+        assert any("Oppenheimer" in result.title for result in results)
 
     @respx.mock
     @pytest.mark.asyncio

@@ -1,15 +1,17 @@
 """streamcloud Python plugin for Scavengarr.
 
-Scrapes the German streaming site behind streamcloud.download with:
+Scrapes the German streaming site of the streamcloud network (currently
+streamcloud.date) with:
 - httpx for all requests (server-rendered HTML, no JS challenges)
 - GET /suche?q={query} for keyword search (2026-11 layout; the old DLE
   ``/?do=search&subaction=search&story={query}`` URL is kept as a fallback)
-- Pagination via ``?page={N}`` on the new layout, or the legacy POST with
-  search_start/result_from when an old mirror answers
+- The 2026-11 search is a single page of up to ~60 hits and ignores ``?page=``;
+  the legacy DLE POST pagination (search_start/result_from) remains for old
+  mirrors
 - Detail page scraping for metadata; stream/hoster links come from the
   embedded devideosrc player (movie or series, see
   ``scavengarr.infrastructure.plugins.devideosrc``)
-- Series detection from the player kind and the "Serien" genre
+- Series detection from the player kind, ``og:type`` and the "Serien" genre
 - Category filtering (Movies/TV/Anime)
 - Bounded concurrency for detail page scraping
 
@@ -110,7 +112,7 @@ def _hrefs(links: list[LexborNode]) -> list[str]:
 
 
 class _SearchResultParser:
-    """Parse streamcloud.plus DLE search result page (selectolax).
+    """Parse streamcloud DLE search result page (selectolax).
 
     Each result is a card with structure::
 
@@ -226,7 +228,8 @@ class _DetailPageParser:
 
     A label's value is the first ``<div>`` or ``<span>`` after it; the last
     value of a field, year link and IMDb link wins. The description is the
-    first paragraph with more than 20 characters.
+    new layout's ``p.dsyn``; otherwise the first paragraph with more than
+    20 characters (legacy layout).
     """
 
     # Labels whose value is read, and the field it fills
@@ -241,27 +244,33 @@ class _DetailPageParser:
         self.imdb_rating = ""
         self.imdb_id = ""
         self.runtime = ""
+        self._is_series = False
 
     @property
     def is_series(self) -> bool:
-        return _detect_series(self.genres)
+        return self._is_series or _detect_series(self.genres)
 
     def feed(self, html: str) -> None:
         tree = LexborHTMLParser(html)
         self._read_new_layout(tree)
+        self._read_og_type(tree)
         self._read_fields(tree)
         # Year link: <a href="/xfsearch/2008">2008</a>
         for link in tree.css("a[href*='/xfsearch/']"):
             text = link.text().strip()
             href = link.attributes.get("href") or ""
-            if re.search(r"/xfsearch/\d{4}$", href) and re.match(r"\d{4}$", text):
+            if (
+                not self.year
+                and re.search(r"/xfsearch/\d{4}$", href)
+                and re.match(r"\d{4}$", text)
+            ):
                 self.year = text
         for link in tree.css("a[href*='imdb.com/title/']"):
             imdb_id = re.search(r"(tt\d+)", link.attributes.get("href") or "")
-            if imdb_id:
+            if imdb_id and not self.imdb_id:
                 self.imdb_id = imdb_id.group(1)
             rating = re.search(r"(\d+[.,]?\d*)/10", link.text().strip())
-            if rating:
+            if rating and not self.imdb_rating:
                 self.imdb_rating = rating.group(1).replace(",", ".")
         if not self.description:
             for paragraph in tree.css("p"):
@@ -272,7 +281,11 @@ class _DetailPageParser:
 
     def _read_new_layout(self, tree: LexborHTMLParser) -> None:
         """Read the 2026-11 detail page: h1, ``div.sc-riga`` rows, ``p.dsyn``."""
-        title = tree.css_first("h1.sc-h1") or tree.css_first("h1")
+        title = tree.css_first("h1.sc-h1")
+        if title is None and tree.css_first("div.sc-riga") is not None:
+            # A new-layout page without the class; the legacy page's first h1
+            # is the site logo ("StreamCloud"), never the title.
+            title = tree.css_first("h1")
         if title is not None:
             self.title = title.text().strip()
         for row in tree.css("div.sc-riga"):
@@ -286,13 +299,22 @@ class _DetailPageParser:
         if imdb is not None:
             self._read_new_imdb(imdb)
 
+    def _read_og_type(self, tree: LexborHTMLParser) -> None:
+        """The new pages mark a series with ``og:type=video.tv_show``."""
+        meta = tree.css_first("meta[property='og:type']")
+        if meta is None:
+            return
+        content = (meta.attributes.get("content") or "").lower()
+        if "video.tv" in content or "video.episode" in content:
+            self._is_series = True
+
     def _read_new_row(self, row: LexborNode) -> None:
         """Read one ``div.sc-riga`` label/value row."""
         label_node = row.css_first("strong")
         value_node = row.css_first("div")
         if label_node is None or value_node is None:
             return
-        label = label_node.text().strip().rstrip(":").lower()
+        label = label_node.text().strip().removesuffix(":").strip().lower()
         if label == "genres":
             self._read_new_genres(value_node)
         elif label in ("veröffentlicht", "veroeffentlicht", "jahr"):
@@ -335,37 +357,35 @@ class _DetailPageParser:
             if not field:
                 continue
             raw = " ".join(node.text().split())
-            if field == "genres":
+            if field == "genres" and not self.genres:
                 self.genres = [g.strip() for g in raw.split("/") if g.strip()]
-            else:
+            elif field == "runtime" and not self.runtime:
                 self.runtime = raw
             label = ""
 
 
 class StreamcloudPlugin(HttpxPluginBase):
-    """Python plugin for streamcloud.plus using httpx."""
+    """Python plugin for the streamcloud network using httpx."""
 
     name = "streamcloud"
     provides = "stream"
     _domains = _DOMAINS
     # One database behind hdfilme, streamcloud and streamkiste (same news ids)
     mirror_group = "hdfilme"
-    # Set by _search_page: the 2026-11 /suche layout has no next page
-    _search_layout = "legacy"
 
     async def _search_page(
         self,
         query: str,
         page: int = 1,
-    ) -> list[dict[str, str]]:
-        """Fetch a search results page.
+    ) -> tuple[list[dict[str, str]], str]:
+        """Fetch one search page and its layout (``"cv"`` or ``"legacy"``).
 
-        DLE CMS search uses GET on page 1::
-            GET /?do=search&subaction=search&story={query}
-
-        Pagination uses POST to /index.php?do=search::
-            POST with form data: do=search, subaction=search,
-            search_start={page}, result_from={(page-1)*12+1}, story={query}
+        The 2026-11 site answers ``GET /suche?q={query}`` with up to ~60 cards
+        in one page; it ignores ``?page=``. The legacy DLE search
+        ``/?do=search&subaction=search&story={query}`` and its POST pagination
+        (``search_start``/``result_from``) are the fallback for old mirrors.
+        The layout comes back with the results, so concurrent searches do not
+        share mutable pagination state on the plugin singleton.
         """
         if page == 1:
             # The first page raises on a failure of the site, so the plugin
@@ -402,18 +422,18 @@ class StreamcloudPlugin(HttpxPluginBase):
                 )
                 html = resp.text if resp is not None else None
         if html is None:
-            return []
+            return [], "legacy"
 
         parser = await parse_page(_SearchResultParser(self.base_url), html)
-        self._search_layout = parser.layout
 
         self._log.info(
             "streamcloud_search_page",
             query=query,
             page=page,
+            layout=parser.layout,
             results=len(parser.results),
         )
-        return parser.results
+        return parser.results, parser.layout
 
     async def _search_all_pages(
         self,
@@ -424,7 +444,7 @@ class StreamcloudPlugin(HttpxPluginBase):
         seen: set[str] = set()
 
         for page_num in range(1, _MAX_PAGES + 1):
-            results = await self._search_page(query, page_num)
+            results, layout = await self._search_page(query, page_num)
             if not results:
                 break
             # The new /suche layout may ignore ?page= and answer the first
@@ -436,7 +456,7 @@ class StreamcloudPlugin(HttpxPluginBase):
             all_results.extend(fresh)
             if len(all_results) >= self.effective_max_results:
                 break
-            if self._search_layout == "cv":
+            if layout == "cv":
                 break
 
         return all_results[: self.effective_max_results]
@@ -521,7 +541,7 @@ class StreamcloudPlugin(HttpxPluginBase):
         season: int | None = None,
         episode: int | None = None,
     ) -> list[SearchResult]:
-        """Search streamcloud.plus and return results with stream links."""
+        """Search the streamcloud network and return results with stream links."""
         if category is None and season is not None:
             category = 5000  # a season request is a series request
         if category is not None:
