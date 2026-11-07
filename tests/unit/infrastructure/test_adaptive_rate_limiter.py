@@ -102,3 +102,30 @@ class TestDomainRateLimiterAdaptive:
         limiter.record_throttle("https://example.com/page")
         bucket = limiter._buckets["example"]
         assert bucket.rate == 10.0  # unchanged
+
+    @pytest.mark.asyncio()
+    async def test_hosts_share_a_bucket_by_second_level_label(self) -> None:
+        """``www.example.com`` and ``example.org`` share one bucket: a 429
+        for one URL slows the other (the label before the top-level domain
+        names the bucket)."""
+        limiter = DomainRateLimiter(default_rps=10.0, adaptive=True, max_rate=50.0)
+        await limiter.acquire("https://www.example.com/a")
+        await limiter.acquire("https://example.org/b")
+        assert len(limiter._buckets) == 1
+
+        limiter.record_throttle("https://www.example.com/a")
+
+        assert limiter._buckets["example"].rate == pytest.approx(5.0)
+        await limiter.acquire("https://example.org/b")
+        limiter.record_success("https://example.org/b")
+        assert limiter._buckets["example"].rate == pytest.approx(5.5)
+
+    @pytest.mark.asyncio()
+    async def test_subdomain_does_not_name_the_bucket(self) -> None:
+        """Two sites that differ only in their subdomain are one bucket, and
+        sites that differ in the second-level label are two."""
+        limiter = DomainRateLimiter(default_rps=10.0, adaptive=True, max_rate=50.0)
+        await limiter.acquire("https://a.example.com/")
+        await limiter.acquire("https://b.example.com/")
+        await limiter.acquire("https://www.other.com/")
+        assert sorted(limiter._buckets) == ["example", "other"]
