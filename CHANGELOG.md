@@ -11,6 +11,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 - `HttpxPluginBase._fetch_text()` dropped the plugin's request headers on the way to the browser, so an API that wants a header rather than a cookie answered the page with 401: moflix's Laravel session needs `X-XSRF-TOKEN` beside the clearance cookie, and every call after a challenge paid a rejected session and a second, in-page fetch. `fetch_text()` now carries the headers through `BrowserFetcherPort`: the stealth page sets them with `page.set_extra_http_headers`, `SolverFetcher` puts them into its `request.get` payload, and `ChainedBrowserFetcher` forwards them, so the first browser load already answers the API.
 - Tests: `test_httpx_browser_fallback.py` (the fallback receives the request's extra headers); the filmfans and kinoger browser fakes accept the new keyword.
 
+### Fixed: moflix's Title Search Scrapes Only the Closest Five Hits
+
+- A moflix title search scraped a detail for every relevant hit: each detail is a Cloudflare-protected API call, and a generic title matched up to twenty. It takes the closest five now (`_TITLE_SCRAPE_HITS`); a season search keeps its single-title cap.
+- Tests: `test_moflix_plugin.py` (twenty hits cost five detail requests).
+
 ### Added: A Title's TMDB Id Opens Its Page Before the Site Search
 
 - hdfilme and streamcloud use the request's TMDB id to open the title page directly (`/filme1/<id>`, `/filme/<id>`, `/serie/<id>`) before the site's text search. The pages accept the id without a slug, so a short or localized title whose page the site search does not return (for example `Es`/`It`) is found again.
