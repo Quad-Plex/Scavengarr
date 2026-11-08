@@ -777,6 +777,26 @@ class TestMirrorStandby:
         assert [r.download_link for r in results] == ["https://dood/1"]
         assert plugins["streamcloud"].search.await_count == 1
 
+    async def test_a_slow_member_hands_over_at_the_standby_timeout(self) -> None:
+        """A member that would spend the plugin timeout hands over early:
+        the standby's results still fit the request's answer."""
+        plugins = self._plugins()
+        plugins["hdfilme"].search = _answer_after(1.0, [_sr("https://hdfilme/1")])
+        plugins["streamcloud"].search = AsyncMock(
+            return_value=[_sr("https://streamcloud/1")]
+        )
+        runner = _runner(
+            _registry(plugins),
+            mirror_groups=self._GROUPS,
+            mirror_standby_timeout=0.05,
+        )
+
+        results = await _search(runner, list(plugins), ["q"])
+
+        assert [r.download_link for r in results] == ["https://streamcloud/1"]
+        assert results[0].metadata["standby_for"] == "hdfilme"
+        assert plugins["streamcloud"].search.await_count == 1
+
     async def test_the_standby_has_a_closed_breaker(self) -> None:
         plugins = self._plugins("hdfilme")
         breaker = PluginCircuitBreaker(failure_threshold=1, cooldown_seconds=60)

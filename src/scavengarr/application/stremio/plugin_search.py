@@ -54,6 +54,10 @@ log = structlog.get_logger(__name__)
 # scored plugin selection; a member without one ranks like a new snapshot
 _MIN_CONFIDENCE = 0.1
 _NEUTRAL_SCORE = 0.5
+# A mirror member with a standby gets this much of the plugin timeout before
+# the standby takes over: hdfilme's generic-title searches can spend the whole
+# timeout scraping, and the standby must still answer within the request.
+_MIRROR_STANDBY_TIMEOUT_S = 12.0
 
 
 class CircuitBreaker(Protocol):
@@ -179,6 +183,7 @@ class PluginSearchRunner:
         episode_filter_fn: EpisodeFilterFn,
         max_results_var: ContextVar[int | None],
         plugin_timeout: float,
+        mirror_standby_timeout: float = _MIRROR_STANDBY_TIMEOUT_S,
         max_results_per_plugin: int,
         telemetry: TelemetryPort = NO_TELEMETRY,
         circuit_breaker: CircuitBreaker | None = None,
@@ -193,6 +198,7 @@ class PluginSearchRunner:
         self._episode_filter_fn = episode_filter_fn
         self._max_results_var = max_results_var
         self._plugin_timeout = plugin_timeout
+        self._mirror_standby_timeout = mirror_standby_timeout
         self._max_results_per_plugin = max_results_per_plugin
         self._telemetry = telemetry
         self._circuit_breaker = circuit_breaker
@@ -414,7 +420,7 @@ class PluginSearchRunner:
         *standbys* (a mirror of its database).
         """
 
-        async def _run(name: str) -> _PluginRun:
+        async def _run(name: str, *, timeout: float | None = None) -> _PluginRun:
             if self._plugins.get_mode(name) == "playwright":
                 slot = budget.acquire_pw()
             else:
@@ -428,11 +434,15 @@ class PluginSearchRunner:
                     episode=episode,
                     episode_ref=episode_ref,
                     budget_ends=budget_ends,
+                    timeout=timeout,
                 )
 
         async def _search_one(name: str) -> list[SearchResult]:
-            results, finished, dropped = await _run(name)
             standby = (standbys or {}).get(name)
+            results, finished, dropped = await _run(
+                name,
+                timeout=self._mirror_standby_timeout if standby is not None else None,
+            )
             if standby is not None and not results:
                 results, _, standby_dropped = await _run(standby)
                 dropped += standby_dropped
@@ -475,14 +485,16 @@ class PluginSearchRunner:
         episode: int | None = None,
         episode_ref: EpisodeRef | None = None,
         budget_ends: float | None = None,
+        timeout: float | None = None,
     ) -> _PluginRun:
-        """Run a single plugin search with its full timeout, catching errors.
+        """Run a single plugin search with its timeout, catching errors.
 
-        Returns the results, whether the search finished (a timeout or an
-        error leaves the plugin's results missing) and the results the
-        episode filter dropped.
+        *timeout* is the mirror member's shorter standby budget; ``None``
+        keeps the plugin's normal timeout. Returns the results, whether the
+        search finished (a timeout or an error leaves the plugin's results
+        missing) and the results the episode filter dropped.
         """
-        timeout = self._plugin_timeout
+        effective_timeout = timeout if timeout is not None else self._plugin_timeout
 
         # Circuit breaker: skip plugins that have been failing consistently
         breaker_key = _breaker_key(name, category)
@@ -494,7 +506,9 @@ class PluginSearchRunner:
             return [], True, 0
 
         # The stealth browser serves the plugin's pages by its end
-        claim = page_claim.set(PageClaim("plugin", time.monotonic() + timeout))
+        claim = page_claim.set(
+            PageClaim("plugin", time.monotonic() + effective_timeout)
+        )
         try:
             return await asyncio.wait_for(
                 self._search_single_plugin(
@@ -506,11 +520,13 @@ class PluginSearchRunner:
                     episode_ref=episode_ref,
                     budget_ends=budget_ends,
                 ),
-                timeout=timeout,
+                timeout=effective_timeout,
             )
         except TimeoutError:
             log.warning(
-                "stremio_plugin_timeout", plugin=name, timeout=round(timeout, 2)
+                "stremio_plugin_timeout",
+                plugin=name,
+                timeout=round(effective_timeout, 2),
             )
             self._history.count(name, "timeouts")
             # The plugin had its whole timeout: a dead host must trip the
