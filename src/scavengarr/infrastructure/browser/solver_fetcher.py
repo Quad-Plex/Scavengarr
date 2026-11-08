@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import html
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -53,16 +53,25 @@ class SolverFetcher:
         # host -> session of the site's latest solution
         self._sessions: dict[str, BrowserSession] = {}
 
-    async def _solve(self, url: str, timeout: float) -> dict[str, Any] | None:
+    async def _solve(
+        self,
+        url: str,
+        timeout: float,
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any] | None:
         """Run ``request.get`` and return the solution (``None`` on failure)."""
+        payload: dict[str, Any] = {
+            "cmd": "request.get",
+            "url": url,
+            "maxTimeout": int(timeout * 1000),
+        }
+        if headers:
+            payload["headers"] = dict(headers)
         try:
             resp = await self._http.post(
                 self._endpoint,
-                json={
-                    "cmd": "request.get",
-                    "url": url,
-                    "maxTimeout": int(timeout * 1000),
-                },
+                json=payload,
                 timeout=timeout + _HTTP_MARGIN_S,
             )
             data = resp.json()
@@ -100,8 +109,14 @@ class SolverFetcher:
     async def session(self, url: str) -> BrowserSession | None:
         return self._sessions.get(urlsplit(url).hostname or "")
 
-    async def fetch_text(self, url: str, *, timeout: float) -> str | None:
-        solution = await self._solve(url, timeout)
+    async def fetch_text(
+        self,
+        url: str,
+        *,
+        timeout: float,
+        headers: Mapping[str, str] | None = None,
+    ) -> str | None:
+        solution = await self._solve(url, timeout, headers=headers)
         if solution is None:
             return None
         status = solution.get("status")
@@ -140,9 +155,15 @@ class ChainedBrowserFetcher:
         # host -> the fetcher whose browser last passed that site
         self._served: dict[str, BrowserFetcherPort] = {}
 
-    async def fetch_text(self, url: str, *, timeout: float) -> str | None:
+    async def fetch_text(
+        self,
+        url: str,
+        *,
+        timeout: float,
+        headers: Mapping[str, str] | None = None,
+    ) -> str | None:
         for fetcher in self._fetchers:
-            body = await fetcher.fetch_text(url, timeout=timeout)
+            body = await fetcher.fetch_text(url, timeout=timeout, headers=headers)
             if body is not None:
                 self._served[urlsplit(url).hostname or ""] = fetcher
                 return body

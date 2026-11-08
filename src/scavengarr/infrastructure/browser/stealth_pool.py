@@ -13,7 +13,7 @@ import asyncio
 import math
 import re
 import time
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
@@ -703,7 +703,13 @@ class StealthPool:
             await asyncio.sleep(backoff)
         return False  # pragma: no cover  (loop always returns)
 
-    async def fetch_text(self, url: str, *, timeout: float) -> str | None:
+    async def fetch_text(
+        self,
+        url: str,
+        *,
+        timeout: float,
+        headers: Mapping[str, str] | None = None,
+    ) -> str | None:
         """Return the body of *url*, solving a Cloudflare challenge first.
 
         Implements ``BrowserFetcherPort``. HTML pages come back as rendered
@@ -713,7 +719,8 @@ class StealthPool:
         with an error (no challenge) is asked once more by in-page fetch:
         an API may serve only requests from its site's pages (moflix, Laravel
         Sanctum: 401 without the site's Referer, which a page load lacks
-        unless a challenge's reload sends it).
+        unless a challenge's reload sends it). *headers* go with the page's
+        requests, including that in-page fetch.
         """
         timeout_ms = int(timeout * 1000)
         try:
@@ -724,6 +731,8 @@ class StealthPool:
                 page: Page | None = None
                 try:
                     page = await self.new_page()
+                    if headers:
+                        await page.set_extra_http_headers(dict(headers))
                     if not await self._navigate(
                         page, url, wait_until="domcontentloaded", timeout_ms=timeout_ms
                     ):
