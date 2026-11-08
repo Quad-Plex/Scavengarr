@@ -12,7 +12,9 @@ import httpx
 import pytest
 import respx
 
-from scavengarr.domain.plugins.base import PluginUnreachableError
+from scavengarr.domain.entities.stremio import ExternalIds
+from scavengarr.domain.plugins.base import PluginUnreachableError, SearchResult
+from scavengarr.infrastructure.plugins.constants import search_external_ids
 
 _PLUGIN_PATH = Path(__file__).resolve().parents[3] / "plugins" / "hdfilme.py"
 
@@ -525,6 +527,58 @@ class TestHdfilmePlugin:
             "https://dr0pstream.com/e/i6yeojjbilif",
             "https://doodstream.com/e/jud9plfzzhf0",
         ]
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_direct_tmdb_lookup_skips_the_text_search(self) -> None:
+        plug = _make_plugin()
+        _mock_site(
+            "",
+            {f"{_BASE}/filme1/346364": _NEW_FILM_DETAIL_HTML},
+        )
+        plug._search_page = AsyncMock()
+
+        token = search_external_ids.set(
+            ExternalIds(imdb_id="tt1396484", tmdb_id=346364, content_type="movie")
+        )
+        try:
+            results = await plug.search("Es")
+        finally:
+            search_external_ids.reset(token)
+        await plug.cleanup()
+
+        assert [result.title for result in results] == ["Braveheart"]
+        plug._search_page.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_direct_tmdb_lookup_falls_back_to_text_search(self) -> None:
+        plug = _make_plugin()
+        plug._ensure_client = AsyncMock()
+        plug._search_page = AsyncMock(
+            return_value=[
+                {
+                    "title": "Batman",
+                    "url": f"{_BASE}/filme1/23004-batman-stream.html",
+                    "year": "1989",
+                }
+            ]
+        )
+        expected = SearchResult(
+            title="Batman", download_link="https://dood/1", category=2000
+        )
+        plug._scrape_detail = AsyncMock(side_effect=[[], [expected]])
+
+        token = search_external_ids.set(
+            ExternalIds(tmdb_id=346364, content_type="movie")
+        )
+        try:
+            results = await plug.search("Batman")
+        finally:
+            search_external_ids.reset(token)
+        await plug.cleanup()
+
+        assert results == [expected]
+        plug._search_page.assert_awaited_once()
 
     @respx.mock
     @pytest.mark.asyncio

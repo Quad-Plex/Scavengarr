@@ -37,6 +37,7 @@ from scavengarr.infrastructure.plugins.categories import (
     served_category,
     stream_category,
 )
+from scavengarr.infrastructure.plugins.constants import search_external_ids
 from scavengarr.infrastructure.plugins.dom import parse_page
 from scavengarr.infrastructure.plugins.episodes import filter_episodes
 from scavengarr.infrastructure.plugins.httpx_base import HttpxPluginBase
@@ -539,6 +540,48 @@ class StreamcloudPlugin(HttpxPluginBase):
             metadata=metadata,
         )
 
+    async def _direct_lookup(
+        self,
+        query: str,
+        category: int | None,
+        season: int | None,
+        episode: int | None,
+    ) -> list[SearchResult]:
+        """Open the title's page by TMDB id when the site search misses it.
+
+        A short or localized title (``Es``/``It``) can be absent from the
+        site's search results although its page exists; the page accepts the
+        TMDB id without a slug. An empty result leaves the caller to run the
+        normal text search.
+        """
+        external = search_external_ids.get(None)
+        if external is None or external.tmdb_id is None:
+            return []
+        kind = external.content_type
+        if kind is None:
+            kind = "series" if category == 5000 or season is not None else "movie"
+        path = (
+            f"/serie/{external.tmdb_id}"
+            if kind == "series"
+            else f"/filme/{external.tmdb_id}"
+        )
+        hit = {
+            "title": query,
+            "url": f"{self.base_url}{path}",
+            "year": "",
+        }
+        found = await self._scrape_detail(hit, season=season, episode=episode)
+        results = [found] if found is not None else []
+        if category is not None:
+            results = filter_by_category(results, category)
+        self._log.info(
+            "streamcloud_direct_lookup",
+            tmdb_id=external.tmdb_id,
+            kind=kind,
+            result_count=len(results),
+        )
+        return results
+
     async def search(
         self,
         query: str,
@@ -558,6 +601,10 @@ class StreamcloudPlugin(HttpxPluginBase):
 
         if not query:
             return []
+
+        direct = await self._direct_lookup(query, category, season, episode)
+        if direct:
+            return direct
 
         # Each hit costs a detail page and its player: scrape real matches only
         all_items = relevant_hits(
