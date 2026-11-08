@@ -6,6 +6,12 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Added: A Title's TMDB Id Opens Its Page Before the Site Search
+
+- hdfilme and streamcloud use the request's TMDB id to open the title page directly (`/filme1/<id>`, `/filme/<id>`, `/serie/<id>`) before the site's text search. The pages accept the id without a slug, so a short or localized title whose page the site search does not return (for example `Es`/`It`) is found again.
+- The id reaches the plugins through the `search_external_ids` context var; `TitleMatchInfo` carries the TMDB id from `/find` (and from `tmdb:` requests). The old text search remains the fallback when Stremio provides no TMDB id or the direct page answers without a player, so setups without the id keep working unchanged.
+- Tests: the TMDB client's id, the runner's context hand-off, and the direct-hit plus text-search-fallback paths of both plugins.
+
 ### Fixed: hdfilme and streamcloud Follow Their 2026-11 Layout
 
 - hdfilme and streamcloud moved to `hd-filme.today` / `streamcloud.date`, `GET /suche?q=`, `div.grid > a.cv` result cards and new detail metadata (`p.dmeta`/`p.dsyn`, `div.sc-riga`). Both parsers keep the old DLE markup as a fallback; the new search is one page of up to ~60 hits and ignores `?page=`.
