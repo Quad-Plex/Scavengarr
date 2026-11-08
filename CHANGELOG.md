@@ -6,6 +6,11 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Fixed: A Plugin's Headers Cannot Leave the Site Through a Redirect
+
+- The browser fallback passed a plugin's request headers to the browser as page-wide extra headers, and a Playwright route's header override follows a redirect: a same-origin request that redirected off-site carried them to the destination (a session header such as moflix's `X-XSRF-TOKEN` included). Only the harmless headers (`Accept`, `Referer`, `User-Agent`, …) go with the page's requests now; the rest go with the in-page JSON fetch, which refuses a redirect (`redirect: "error"`), so no redirect target can inherit them. The solver path gets only the harmless headers for the same reason — it applies them to every request of its browser — and the session it hands back lets the plugin's next httpx request carry the token, scoped to the site.
+- Tests: `test_stealth_pool.py` (the page gets only the harmless headers, the in-page fetch carries the token and refuses redirects; a refused page load is asked with the headers), `test_solver_fetcher.py` (a token and an `Authorization` stay out of the solver payload).
+
 ### Fixed: The Browser Fallback Keeps a Plugin's Request Headers
 
 - `HttpxPluginBase._fetch_text()` dropped the plugin's request headers on the way to the browser, so an API that wants a header rather than a cookie answered the page with 401: moflix's Laravel session needs `X-XSRF-TOKEN` beside the clearance cookie, and every call after a challenge paid a rejected session and a second, in-page fetch. `fetch_text()` now carries the headers through `BrowserFetcherPort`: the stealth page sets them with `page.set_extra_http_headers`, `SolverFetcher` puts them into its `request.get` payload, and `ChainedBrowserFetcher` forwards them, so the first browser load already answers the API.

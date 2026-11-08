@@ -199,7 +199,7 @@ An httpx plugin whose site answers with a Cloudflare page loads the same URL thr
 The composition root chains the fetchers (`build_browser_fetcher()` in `interfaces/composition.py`): the own stealth browser first (`playwright.browser_fallback`), then an optional Byparr or FlareSolverr sidecar (`playwright.solver_url`), which speaks the FlareSolverr v1 API (`SolverFetcher`).
 `ChainedBrowserFetcher` (`infrastructure/browser/solver_fetcher.py`) tries them in order and remembers per host which one served it.
 Another challenge than a Cloudflare page, or one without a fetcher, marks the search's challenge as unsolved, and the fetch answers nothing.
-`fetch_text()` carries the caller's request headers through the chain: `StealthPool` sets them with `page.set_extra_http_headers`, `SolverFetcher` puts them into its `request.get` payload, and `ChainedBrowserFetcher` forwards them to the fetcher it tries.
+`fetch_text()` carries the caller's request headers through the chain, but only the harmless ones (`Accept`, `Referer`, `User-Agent`, …) go with the page's requests: `StealthPool` sets those as page-wide extra headers, and the rest of a plugin's headers (a session token such as moflix's `X-XSRF-TOKEN`) go with the in-page JSON fetch, which refuses a redirect so a redirect target cannot inherit them. `SolverFetcher` sends only the harmless headers too, because it applies them to every request of its browser, and `ChainedBrowserFetcher` forwards them to the fetcher it tries.
 An API that wants a header rather than a cookie (moflix's `X-XSRF-TOKEN`) therefore answers the in-page JSON fetch on the first browser load, without a second request and a rejected session.
 
 ```mermaid

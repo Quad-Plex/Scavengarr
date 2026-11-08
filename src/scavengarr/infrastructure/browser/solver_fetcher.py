@@ -26,6 +26,7 @@ from scavengarr.domain.ports.browser_fetcher import (
     ClickThrough,
     Redirect,
 )
+from scavengarr.infrastructure.browser.header_safety import safe_headers
 
 log = structlog.get_logger(__name__)
 
@@ -37,6 +38,11 @@ _PRE_ONLY_RE = re.compile(
 )
 # Extra time on top of the solver's own budget for the HTTP round trip
 _HTTP_MARGIN_S = 10.0
+# A solver applies the request's headers to every request its browser makes,
+# a subresource or a redirect target included. Only the harmless headers go
+# therefore (``safe_headers``): a plugin's session token (moflix's
+# X-XSRF-TOKEN) stays with the own browser, whose in-page fetch carries it,
+# and the plugin's next httpx request after the session adoption carries it.
 
 
 def _unwrap_pre(body: str) -> str:
@@ -60,14 +66,20 @@ class SolverFetcher:
         *,
         headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any] | None:
-        """Run ``request.get`` and return the solution (``None`` on failure)."""
+        """Run ``request.get`` and return the solution (``None`` on failure).
+
+        *headers* are filtered to the harmless ones (``safe_headers``): the
+        solver cannot scope a header to one origin.
+        """
         payload: dict[str, Any] = {
             "cmd": "request.get",
             "url": url,
             "maxTimeout": int(timeout * 1000),
         }
         if headers:
-            payload["headers"] = dict(headers)
+            scoped = safe_headers(headers)
+            if scoped:
+                payload["headers"] = scoped
         try:
             resp = await self._http.post(
                 self._endpoint,

@@ -111,7 +111,7 @@ Shared helpers:
 
 - `_timeout` (default 15 s) and `_user_agent` for every request;
 - one app-wide HTTP client with per-domain rate limiting and retries of 429 and 503 (`RetryTransport`), injected by the composition root;
-- `_fetch_text()`, a GET that loads the URL through the browser when the site answers with a Cloudflare challenge, and then goes on in httpx with the browser's session (its cookies and User-Agent); the request's headers go with the browser's page too;
+- `_fetch_text()`, a GET that loads the URL through the browser when the site answers with a Cloudflare challenge, and then goes on in httpx with the browser's session (its cookies and User-Agent); only the harmless request headers go with the page's requests, the rest with its in-page fetch, which refuses redirects;
 - `_fetch_search_page()`, the search page's GET or POST in the raising mode (see [Failures of the site](#failures-of-the-site));
 - `_safe_fetch()` and `_safe_parse_json()`, which log and return `None` instead of raising (`_safe_fetch(raising=True)` is the raising mode);
 - `_resolve_redirect()` and `_resolve_own_links()`, which replace link-outs on the plugin's own host by their off-site targets, and `_resolve_link_out()`, which does it for one link-out at a grab (`GrabResolvingPlugin`);
