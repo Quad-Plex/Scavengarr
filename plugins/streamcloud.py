@@ -57,6 +57,10 @@ _MAX_PAGES = 84  # 12 results/page → 84 pages for ~1000
 # Constants
 # ---------------------------------------------------------------------------
 
+# A title search scrapes the closest hits only: a generic title can match
+# dozens of site titles ("Dark" matches 60), and each detail costs a player.
+_TITLE_SCRAPE_HITS = 5
+
 # Genres that indicate a series
 _SERIES_GENRES = frozenset({"serie", "serien"})
 
@@ -561,7 +565,7 @@ class StreamcloudPlugin(HttpxPluginBase):
             query,
             hit_title,
             limit=SINGLE_TITLE_HITS if season is not None else None,
-        )
+        )[:_TITLE_SCRAPE_HITS]
         if not all_items:
             return []
 

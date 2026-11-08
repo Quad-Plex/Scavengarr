@@ -834,6 +834,41 @@ class TestLooseMatches:
         scraped = [c.args[0]["url"] for c in plugin._scrape_detail.await_args_list]
         assert scraped == ["https://site.example/1"]
 
+    async def test_title_search_caps_detail_scrapes(self) -> None:
+        plugin = _make_plugin()
+        plugin._ensure_client = AsyncMock()
+        plugin._verify_domain = AsyncMock()
+        plugin._search_all_pages = AsyncMock(
+            return_value=[
+                {"title": f"Dark {i}", "url": f"https://site.example/{i}"}
+                for i in range(20)
+            ]
+        )
+        plugin._scrape_detail = AsyncMock(return_value=None)
+
+        await plugin.search("Dark")
+
+        assert len(plugin._scrape_detail.await_args_list) == 5
+
+    async def test_title_search_starts_with_the_exact_hit(self) -> None:
+        plugin = _make_plugin()
+        plugin._ensure_client = AsyncMock()
+        plugin._verify_domain = AsyncMock()
+        plugin._search_all_pages = AsyncMock(
+            return_value=[
+                {"title": f"Dark {i}", "url": f"https://site.example/{i}"}
+                for i in range(20)
+            ]
+            + [{"title": "Dark", "url": "https://site.example/dark"}]
+        )
+        plugin._scrape_detail = AsyncMock(return_value=None)
+
+        await plugin.search("Dark")
+
+        scraped = [c.args[0]["url"] for c in plugin._scrape_detail.await_args_list]
+        assert scraped[0] == "https://site.example/dark"
+        assert len(scraped) == 5
+
     async def test_season_request_scrapes_the_exact_hit_only(self) -> None:
         plugin = _make_plugin()
         plugin._ensure_client = AsyncMock()

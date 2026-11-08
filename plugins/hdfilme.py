@@ -60,6 +60,10 @@ _CATEGORY_PATH_MAP: dict[int, str] = {
     5000: "serien",
 }
 
+# A title search scrapes the closest hits only: a generic title can match
+# dozens of site titles ("Dark" matches 60), and each detail costs a player.
+_TITLE_SCRAPE_HITS = 5
+
 
 class _SearchResultParser:
     """Parse hdfilme search result cards (selectolax).
@@ -557,7 +561,7 @@ class HdfilmePlugin(HttpxPluginBase):
                 query,
                 hit_title,
                 limit=SINGLE_TITLE_HITS if season is not None else None,
-            )
+            )[:_TITLE_SCRAPE_HITS]
         elif category is not None:
             path = _CATEGORY_PATH_MAP[category - category % 1000]
             all_items = await self._browse_category(path)
