@@ -16,6 +16,7 @@ from collections.abc import (
     Coroutine,
     Generator,
     Iterable,
+    Iterator,
     Mapping,
     Sequence,
 )
@@ -26,7 +27,7 @@ from typing import Any, Protocol
 import structlog
 
 from scavengarr.domain.entities.scoring import PluginScoreSnapshot
-from scavengarr.domain.entities.stremio import EpisodeRef
+from scavengarr.domain.entities.stremio import EpisodeRef, ExternalIds
 from scavengarr.domain.plugins.base import (
     PluginProtocol,
     PluginUnreachableError,
@@ -183,8 +184,9 @@ class PluginSearchRunner:
         episode_filter_fn: EpisodeFilterFn,
         max_results_var: ContextVar[int | None],
         plugin_timeout: float,
-        mirror_standby_timeout: float = _MIRROR_STANDBY_TIMEOUT_S,
         max_results_per_plugin: int,
+        external_ids_var: ContextVar[ExternalIds | None] | None = None,
+        mirror_standby_timeout: float = _MIRROR_STANDBY_TIMEOUT_S,
         telemetry: TelemetryPort = NO_TELEMETRY,
         circuit_breaker: CircuitBreaker | None = None,
         browser_warmup_fn: BrowserWarmupFn | None = None,
@@ -200,6 +202,7 @@ class PluginSearchRunner:
         self._plugin_timeout = plugin_timeout
         self._mirror_standby_timeout = mirror_standby_timeout
         self._max_results_per_plugin = max_results_per_plugin
+        self._external_ids_var = external_ids_var
         self._telemetry = telemetry
         self._circuit_breaker = circuit_breaker
         self._browser_warmup_fn = browser_warmup_fn
@@ -224,6 +227,7 @@ class PluginSearchRunner:
         season: int | None = None,
         episode: int | None = None,
         episode_ref: EpisodeRef | None = None,
+        external_ids: ExternalIds | None = None,
         budget: ConcurrencyBudgetPort,
         budget_ends: float | None = None,
         on_results: OnResultsFn | None = None,
@@ -303,6 +307,7 @@ class PluginSearchRunner:
                     season=season,
                     episode=episode,
                     episode_ref=episode_ref,
+                    external_ids=external_ids,
                     budget=budget,
                     budget_ends=budget_ends,
                     on_results=_hand_on,
@@ -393,6 +398,17 @@ class PluginSearchRunner:
             log.info("stremio_mirrors_skipped", chosen=chosen, skipped=skipped)
         return [name for name in plugin_names if keep(name)], standbys
 
+    @contextmanager
+    def _external_ids(self, external_ids: ExternalIds | None) -> Iterator[None]:
+        """Expose *external_ids* to the plugin called inside the block."""
+        var = self._external_ids_var
+        token = var.set(external_ids) if var is not None else None
+        try:
+            yield
+        finally:
+            if var is not None and token is not None:
+                var.reset(token)
+
     async def search_plugins(
         self,
         plugin_names: list[str],
@@ -402,6 +418,7 @@ class PluginSearchRunner:
         season: int | None = None,
         episode: int | None = None,
         episode_ref: EpisodeRef | None = None,
+        external_ids: ExternalIds | None = None,
         budget: ConcurrencyBudgetPort,
         budget_ends: float | None = None,
         on_results: OnResultsFn | None = None,
@@ -421,21 +438,22 @@ class PluginSearchRunner:
         """
 
         async def _run(name: str, *, timeout: float | None = None) -> _PluginRun:
-            if self._plugins.get_mode(name) == "playwright":
-                slot = budget.acquire_pw()
-            else:
-                slot = budget.acquire_httpx()
-            async with slot:
-                return await self._run_plugin_with_timeout(
-                    name,
-                    query,
-                    category,
-                    season=season,
-                    episode=episode,
-                    episode_ref=episode_ref,
-                    budget_ends=budget_ends,
-                    timeout=timeout,
-                )
+            with self._external_ids(external_ids):
+                if self._plugins.get_mode(name) == "playwright":
+                    slot = budget.acquire_pw()
+                else:
+                    slot = budget.acquire_httpx()
+                async with slot:
+                    return await self._run_plugin_with_timeout(
+                        name,
+                        query,
+                        category,
+                        season=season,
+                        episode=episode,
+                        episode_ref=episode_ref,
+                        budget_ends=budget_ends,
+                        timeout=timeout,
+                    )
 
         async def _search_one(name: str) -> list[SearchResult]:
             standby = (standbys or {}).get(name)

@@ -13,7 +13,7 @@ from structlog.testing import capture_logs
 
 from scavengarr.application.stremio.plugin_search import PluginSearchRunner
 from scavengarr.domain.entities.scoring import PluginScoreSnapshot
-from scavengarr.domain.entities.stremio import EpisodeRef
+from scavengarr.domain.entities.stremio import EpisodeRef, ExternalIds
 from scavengarr.domain.plugins.base import PluginUnreachableError, SearchResult
 from scavengarr.domain.ports.browser_fetcher import PageClaim, page_claim
 from scavengarr.domain.ports.plugin_history import (
@@ -23,6 +23,7 @@ from scavengarr.domain.ports.plugin_history import (
 )
 from scavengarr.infrastructure.circuit_breaker import PluginCircuitBreaker
 from scavengarr.infrastructure.concurrency import ConcurrencyPool
+from scavengarr.infrastructure.plugins.constants import search_external_ids
 from scavengarr.infrastructure.telemetry import Telemetry
 
 _max_results_var: ContextVar[int | None] = ContextVar(
@@ -98,6 +99,29 @@ class TestSearchWithFallback:
         results = await _search(_runner(registry), ["a", "b"], ["movie"])
 
         assert {r.download_link for r in results} == {"https://a/1", "https://b/1"}
+
+    async def test_external_ids_reach_the_plugin_and_reset(self) -> None:
+        plugin = _plugin([_sr("https://a/1")])
+        seen: list[ExternalIds | None] = []
+
+        async def _search(*_args: object, **_kwargs: object) -> list[SearchResult]:
+            seen.append(search_external_ids.get(None))
+            return [_sr("https://a/1")]
+
+        plugin.search = AsyncMock(side_effect=_search)
+        runner = _runner(_registry({"a": plugin}), external_ids_var=search_external_ids)
+        external = ExternalIds(
+            imdb_id="tt1396484", tmdb_id=346364, content_type="movie"
+        )
+
+        pool = ConcurrencyPool(httpx_slots=10, pw_slots=10)
+        async with pool.request() as budget:
+            await runner.search_with_fallback(
+                ["a"], ["q"], 2000, budget=budget, external_ids=external
+            )
+
+        assert seen == [external]
+        assert search_external_ids.get(None) is None
 
     async def test_fallback_query_adds_only_unseen_links(self) -> None:
         plugin = _plugin([])
