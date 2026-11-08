@@ -14,6 +14,12 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 - Tests: `test_tmdb_client.py` (type filter, short codes, colon sequels, ambiguous prefixes, a non-Latin localized title, cache and negative cache, the log), `test_stremio_queries.py` (the extra query, no colon fallback, merged search titles), `test_title_matcher.py` (a romaji site title passes).
 - Docs: `docs/current/stremio-addon.md`.
 
+### Fixed: aniworld Searches a Title Whose Keyword Has an Apostrophe
+
+- aniworld's `/ajax/search` answers HTTP 200 with an empty body for any keyword containing an ASCII apostrophe, so a series with one was searched as no hits. The plugin retries the longest run of words without an apostrophe when the first answer has no hits; `relevant_hits()` still filters the site's hits with the original query.
+- Tests: `test_aniworld_plugin.py` (the fallback and its two POST bodies).
+- Docs: `docs/current/plugins.md`.
+
 ### Added: Tests Guard the Rate Limiter's Domain Grouping and Wiring
 
 - A regression in the rate limiter's domain grouping or in its wiring passed the tests. `test_adaptive_rate_limiter.py` now throttles one URL and expects `www.example.com` and `example.org` to slow down with it (one bucket per domain name), and `test_http_client_wiring.py` builds the shared HTTP client from a config and checks that the adaptive switch and the min and max rps reach the limiter. No behaviour changed.
