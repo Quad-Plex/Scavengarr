@@ -282,7 +282,7 @@ A plugin's health comes from `PluginHealthMonitor` (`infrastructure/plugins/heal
 Mirror groups join sites that front one database (the same ids, titles and links in other themes): hdfilme, streamcloud and streamkiste share `mirror_group = "hdfilme"`.
 The member with the best `final_score` of its `current` snapshot is asked; a score with confidence up to 0.1 counts as none, and without scores the first member is asked.
 A member whose breaker is open is passed over; when no member's breaker is closed, all stay in and their breakers decide.
-The next member stands by: it is asked when the chosen one gives nothing for a query, and a member that gave nothing while its standby delivered ranks behind the others.
+The next member stands by: it is asked when the chosen one gives nothing for a query, within the time left of the answer budget, and a member that gave nothing while its standby delivered ranks behind the others.
 This choice uses the scores whenever a score store exists, also with scored selection off.
 Torznab keeps every member as an indexer of its own.
 

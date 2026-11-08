@@ -821,6 +821,90 @@ class TestMirrorStandby:
         assert results[0].metadata["standby_for"] == "hdfilme"
         assert plugins["streamcloud"].search.await_count == 1
 
+    async def test_the_standby_gets_only_the_time_left_of_the_answer(self) -> None:
+        """The standby stands in for this answer: it is cut at the request's
+        answer budget instead of getting another full plugin timeout."""
+        cancelled = asyncio.Event()
+        plugins = self._plugins()
+        plugins["hdfilme"].search = _answer_after(1.0, [])
+        plugins["streamcloud"].search = _endless_search(cancelled)
+        breaker = PluginCircuitBreaker(failure_threshold=1)
+        runner = _runner(
+            _registry(plugins),
+            mirror_groups=self._GROUPS,
+            mirror_standby_timeout=0.02,
+            circuit_breaker=breaker,
+        )
+        started = time.monotonic()
+        pool = ConcurrencyPool(httpx_slots=10, pw_slots=10)
+
+        async with pool.request() as budget:
+            await runner.search_with_fallback(
+                list(plugins),
+                ["q"],
+                2000,
+                budget=budget,
+                budget_ends=started + 0.08,
+            )
+
+        assert cancelled.is_set()
+        assert time.monotonic() - started < 1.0
+        # Cut by the budget, the standby did not have its whole timeout:
+        # the cut is no failure of its site
+        assert breaker.allow("streamcloud:2000")
+
+    async def test_the_standby_slot_wait_counts_against_the_budget(self) -> None:
+        """The standby's clock runs from the answer budget, not from the
+        moment it gets a slot: a queue wait past the budget skips it."""
+        plugins = self._plugins()
+        plugins["hdfilme"].search = _answer_after(1.0, [])
+        plugins["streamcloud"].search = AsyncMock(
+            return_value=[_sr("https://streamcloud/1")]
+        )
+        runner = _runner(
+            _registry(plugins),
+            mirror_groups=self._GROUPS,
+            mirror_standby_timeout=0.01,
+        )
+        started = time.monotonic()
+
+        with capture_logs() as logs:
+            await runner.search_with_fallback(
+                list(plugins),
+                ["q"],
+                2000,
+                budget=_DelayedBudget(0.04),
+                budget_ends=started + 0.06,
+            )
+
+        assert plugins["streamcloud"].search.await_count == 0
+        assert any(
+            event["event"] == "stremio_mirror_standby_budget_spent" for event in logs
+        )
+
+    async def test_a_standby_past_the_answer_budget_is_not_run(self) -> None:
+        """Once the answer budget has passed the standby could only fill the
+        cache; its slot belongs to the next request."""
+        plugins = self._plugins()
+        plugins["hdfilme"].search = AsyncMock(return_value=[])
+        runner = _runner(_registry(plugins), mirror_groups=self._GROUPS)
+        pool = ConcurrencyPool(httpx_slots=10, pw_slots=10)
+
+        with capture_logs() as logs:
+            async with pool.request() as budget:
+                await runner.search_with_fallback(
+                    list(plugins),
+                    ["q"],
+                    2000,
+                    budget=budget,
+                    budget_ends=time.monotonic() - 1,
+                )
+
+        assert plugins["streamcloud"].search.await_count == 0
+        assert any(
+            event["event"] == "stremio_mirror_standby_budget_spent" for event in logs
+        )
+
     async def test_the_standby_has_a_closed_breaker(self) -> None:
         plugins = self._plugins("hdfilme")
         breaker = PluginCircuitBreaker(failure_threshold=1, cooldown_seconds=60)
@@ -1019,6 +1103,32 @@ def _endless_search(cancelled: asyncio.Event) -> AsyncMock:
         return []
 
     return AsyncMock(side_effect=_search)
+
+
+class _DelayedSlot:
+    """A concurrency slot that takes *delay* seconds to acquire."""
+
+    def __init__(self, delay: float) -> None:
+        self._delay = delay
+
+    async def __aenter__(self) -> None:
+        await asyncio.sleep(self._delay)
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
+
+
+class _DelayedBudget:
+    """A request budget whose slot acquisition always waits *delay* seconds."""
+
+    def __init__(self, delay: float) -> None:
+        self._delay = delay
+
+    def acquire_httpx(self) -> _DelayedSlot:
+        return _DelayedSlot(self._delay)
+
+    def acquire_pw(self) -> _DelayedSlot:
+        return _DelayedSlot(self._delay)
 
 
 class TestOnResults:
