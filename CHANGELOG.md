@@ -6,6 +6,12 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Added: Season, Episode and Plugin per Stremio Stream in the Log
+
+- A series stream of the right show but the wrong season did not show in the log which plugin and which link label gave it. Each answered stream now logs `stremio_stream_item` with the request's `imdb_id`, `req_season` and `req_episode`, the `plugin`, the `hoster`, the `link_label` (40 characters), the `label_season` and `label_episode` parsed from it and the `stream_id` (no URL). The episode filter logs `episode_filter_seasonless_pass` when it keeps a link for a season after the first only because its label names no season (`Folge 3`); the filter's behaviour is unchanged.
+- Docs: `stremio-addon.md` (Observability).
+- Tests: `test_episode_filter.py` (`Folge 3` on a season 2 request logged, `2x3` and season 1 not, the label cut), `test_stremio_stream.py` (one `stremio_stream_item` per answered stream with plugin and label numbers).
+
 ### Added: A StreamUp HLS Stream Must Answer Its First Segment
 
 - A signed StreamUp (filmpalast) HLS link can expire while its playlists still answer, so the player opened a stream that failed at its first segment. With the new setting `stremio.verify_hls_segment` (default on) the registry walks the playlists to one segment and asks for its first bytes (`segment_is_gone()`, 4 s in total, in parallel for all candidates, as part of each resolution). A 403, 404 or 410 drops the stream (not cached); a timeout, a network error or any other status keeps it. Streams of other hosters are not probed.

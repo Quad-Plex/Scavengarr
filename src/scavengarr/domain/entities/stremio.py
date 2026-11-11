@@ -72,6 +72,8 @@ class RankedStream:
 
     ``quality_guessed``: a word that names no resolution ("HD", "WEBRIP")
     gave the quality, which ranks the stream but shows no label.
+    ``link_label``, ``label_season`` and ``label_episode``: the download
+    link's label and the season and episode it names, for the log.
     """
 
     url: str
@@ -84,6 +86,9 @@ class RankedStream:
     title: str = ""
     source_plugin: str = ""
     rank_score: int = 0
+    link_label: str = ""
+    label_season: int | None = None
+    label_episode: int | None = None
 
 
 @dataclass(frozen=True)

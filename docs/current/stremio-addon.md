@@ -467,6 +467,8 @@ The scored plugin selection's settings are in [Plugins](plugins.md#configuration
 
 The use case records its phases as telemetry stages (`stremio_phase`: the anime ids, the metadata, the series meta, the search and the resolution), and the HLS proxy its requests and bytes ([Metrics](../reference/metrics.md#metric-table)).
 A request logs `stremio_search_cache_hit`, `stremio_search_cache_stored`, `stremio_search_complete` (`source`, `complete`, `missing`, `dropped`), `stremio_resolve_complete` (`reason`: target, done, budget or deadline) and `stremio_stream_response` (`source`, `complete`, `missing_count`).
+Each answered stream logs `stremio_stream_item` (`imdb_id`, `req_season`, `req_episode`, `plugin`, `hoster`, `link_label` cut to 40 characters, `label_season` and `label_episode` parsed from the label, `stream_id`; no URL): the line names the plugin and the label of a stream of the wrong season.
+The episode filter logs `episode_filter_seasonless_pass` (`season`, `episode`, `label` cut to 40 characters) when it keeps a link for a season after the first only because the link's label names no season (`Folge 3`); the filter itself is unchanged.
 A completion search logs `stremio_search_completion` with its plugins and its outcome.
 The anime ids log `anime_id_translated`, `anime_kitsu_number`, `anime_id_lookup_failed`, `anime_id_addon_failed`, `anime_id_lists_failed` and `anime_id_lists_loaded`.
 `scripts/stremio_round.py` records `X-Cache` and `X-Search-Complete` per title, and `scripts/stremio_playcheck.py` fetches every stream of a running instance as a player does.
