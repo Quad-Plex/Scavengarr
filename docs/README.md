@@ -164,6 +164,8 @@ One line per feature, with the document that describes it.
 |---|---|---|
 | [`how-to/dev-container.md`](how-to/dev-container.md) | how-to | Setting up and working in the dev container: git access, its tools, checks in a worktree, the editor, the Claude Code hooks and the production diagnostics. |
 | [`agents/skills.md`](agents/skills.md) | reference | The Claude Code skills of the dev container and their sources. |
+| [`agents/skill-review-2026-11-own.md`](agents/skill-review-2026-11-own.md) | reference | The review of the project's own Claude Code skills against the repository, with the evidence and the planned patches. |
+| [`agents/skill-review-2026-11-external.md`](agents/skill-review-2026-11-external.md) | reference | The review of the external Claude Code skills against their upstream sources and the repository, with the evidence and the planned patches. |
 | [`agents/mcp-servers.md`](agents/mcp-servers.md) | reference | The MCP servers of `.mcp.json` and what installs them. |
 
 ## Plans
