@@ -24,6 +24,7 @@ import re
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Literal
 from urllib.parse import ParseResult, SplitResult, urljoin, urlparse, urlsplit
 
 import httpx
@@ -34,6 +35,28 @@ from scavengarr.infrastructure.hoster_resolvers._domain import extract_domain
 from scavengarr.infrastructure.plugins.constants import DEFAULT_USER_AGENT
 
 log = structlog.get_logger(__name__)
+
+# Diagnosis events of the proxy (``ProxyWatch``) and their fields: hosts
+# only, no URL, no token
+EVENT_HLS_FIRST_ANSWER = "hls_proxy_first_answer"
+EVENT_FILE_FIRST_ANSWER = "file_proxy_first_answer"
+EVENT_CLIENT_ABORT = "proxy_client_abort"
+FIELD_STREAM_ID = "stream_id"
+FIELD_HOSTER = "hoster"
+FIELD_KIND = "kind"
+FIELD_CDN_HOST = "cdn_host"
+FIELD_STATUS = "status"
+FIELD_CONTENT_TYPE = "content_type"
+FIELD_CONTENT_LENGTH = "content_length"
+FIELD_FIRST_BYTES_HEX = "first_bytes_hex"
+FIELD_BYTES_SENT = "bytes_sent"
+FIELD_EXPECTED_BYTES = "expected_bytes"
+FIELD_SECONDS_SINCE_FIRST = "seconds_since_first"
+
+# The bytes of a first answer logged in hex, and the stream ids whose first
+# answers are remembered (the oldest dropped)
+_FIRST_BYTES = 8
+_FIRST_ANSWERS_MAX = 512
 
 # Short-TTL manifest cache (60 seconds) — prevents re-fetching the
 # same master/variant playlist on rapid segment requests.
@@ -196,10 +219,88 @@ def _player_headers(headers: dict[str, str]) -> dict[str, str]:
     return {"User-Agent": DEFAULT_USER_AGENT, **headers}
 
 
+ProxyKind = Literal["master", "playlist", "segment", "file"]
+
+# The kinds whose first answer was logged, by stream id (the oldest first, at
+# most ``_FIRST_ANSWERS_MAX``)
+_first_answers: dict[str, set[str]] = {}
+
+
+@dataclass
+class ProxyWatch:
+    """The diagnosis log of one proxied player request of *kind* for
+    *stream_id* (*hoster*): ``hls_proxy_first_answer`` or
+    ``file_proxy_first_answer`` for the CDN's first answer of a stream's
+    master, playlist, segment or file, once per stream id and kind, and
+    ``proxy_client_abort`` when the player stops before the body ends."""
+
+    stream_id: str
+    hoster: str
+    kind: ProxyKind
+    first_at: float | None = None
+
+    def answered(
+        self,
+        url: str,
+        status: int | None,
+        content_type: str | None,
+        content_length: int | None,
+        first: bytes,
+    ) -> None:
+        """The CDN's answer of this request from *url* (*status* ``None``
+        for a segment fetched ahead or a cached playlist), with the *first*
+        bytes the proxy read: logged when it is the stream's first of its
+        kind."""
+        self.first_at = time.monotonic()
+        kinds = _first_answers.setdefault(self.stream_id, set())
+        if self.kind in kinds:
+            return
+        kinds.add(self.kind)
+        while len(_first_answers) > _FIRST_ANSWERS_MAX:
+            del _first_answers[next(iter(_first_answers))]
+        log.info(
+            EVENT_FILE_FIRST_ANSWER if self.kind == "file" else EVENT_HLS_FIRST_ANSWER,
+            **{
+                FIELD_STREAM_ID: self.stream_id,
+                FIELD_HOSTER: self.hoster,
+                FIELD_KIND: self.kind,
+                FIELD_CDN_HOST: urlsplit(url).hostname,
+                FIELD_STATUS: status,
+                FIELD_CONTENT_TYPE: content_type,
+                FIELD_CONTENT_LENGTH: content_length,
+                FIELD_FIRST_BYTES_HEX: first[:_FIRST_BYTES].hex(),
+            },
+        )
+
+    def aborted(self, sent: int, expected: int | None) -> None:
+        """The player stopped before the body ended: *sent* bytes of
+        *expected* (``None``: no length) handed to it."""
+        since = None if self.first_at is None else time.monotonic() - self.first_at
+        log.info(
+            EVENT_CLIENT_ABORT,
+            **{
+                FIELD_STREAM_ID: self.stream_id,
+                FIELD_HOSTER: self.hoster,
+                FIELD_KIND: self.kind,
+                FIELD_BYTES_SENT: sent,
+                FIELD_EXPECTED_BYTES: expected,
+                FIELD_SECONDS_SINCE_FIRST: None if since is None else round(since, 3),
+            },
+        )
+
+
+def _content_length(resp: httpx.Response) -> int | None:
+    """The CDN answer's ``Content-Length``, ``None`` without one."""
+    length = resp.headers.get("content-length", "")
+    return int(length) if length.isdigit() else None
+
+
 async def fetch_hls_resource(
     http_client: httpx.AsyncClient,
     url: str,
     headers: dict[str, str],
+    *,
+    watch: ProxyWatch | None = None,
 ) -> tuple[bytes, str]:
     """Fetch an HLS resource (manifest or segment) with headers.
 
@@ -208,13 +309,17 @@ async def fetch_hls_resource(
 
     Manifests are cached for 60 seconds to avoid re-fetching on
     rapid segment requests.  Acquires the global CDN semaphore to
-    prevent connection stampedes from concurrent viewers.
+    prevent connection stampedes from concurrent viewers. *watch* is told
+    a 2xx answer, a cached one's included (an error answer logs
+    ``hls_proxy_cdn_error`` in the router).
     """
     # Check manifest cache for .m3u8 URLs
     cached = _manifest_cache.get(url)
     if cached is not None:
         body, ct, expires = cached
         if time.monotonic() < expires:
+            if watch is not None:
+                watch.answered(url, None, ct, len(body), body)
             return body, ct
         del _manifest_cache[url]
 
@@ -226,6 +331,8 @@ async def fetch_hls_resource(
             timeout=15.0,
         )
         resp.raise_for_status()
+    if watch is not None:
+        _watch_answer(watch, resp, resp.content)
 
     ct = resp.headers.get("content-type", "application/octet-stream")
     body = resp.content
@@ -253,6 +360,7 @@ async def stream_hls_segment(
     head: bool = False,
     on_sent: Callable[[int], None] | None = None,
     read_ahead: SegmentReadAhead | None = None,
+    watch: ProxyWatch | None = None,
 ) -> tuple[AsyncGenerator[bytes], str]:
     """Stream an HLS segment from CDN without buffering full body.
 
@@ -273,13 +381,19 @@ async def stream_hls_segment(
     transfer's included. With *read_ahead* a GET starts the fetches of
     the next segments and is answered from memory when its own was
     fetched ahead. The CDN's answer is read with ``_SEGMENT_READ_TIMEOUT_S``
-    (``_read_timeout``).
+    (``_read_timeout``). *watch* is told the 2xx answer and a player's
+    abort (``_cdn_body``, ``_pieces``).
     """
     if read_ahead is not None and not head:
         read_ahead.schedule(url, http_client, headers)
         ahead = await read_ahead.take(url)
         if ahead is not None:
-            return _pieces(ahead.body, on_sent=on_sent), ahead.content_type
+            if watch is not None:
+                watch.answered(
+                    url, None, ahead.content_type, len(ahead.body), ahead.body
+                )
+            body = _pieces(ahead.body, on_sent=on_sent, watch=watch)
+            return body, ahead.content_type
     timeout = _read_timeout(http_client, _SEGMENT_READ_TIMEOUT_S)
     async with _CDN_SEMAPHORE:
         resp = await http_client.send(
@@ -304,21 +418,41 @@ async def stream_hls_segment(
         head=head,
         on_sent=on_sent,
         segment=True,
+        watch=watch,
     )
     return body, ct
 
 
+def _watch_answer(watch: ProxyWatch, resp: httpx.Response, first: bytes) -> None:
+    """*resp*, the CDN's streamed answer, with the *first* bytes read, told
+    to *watch*."""
+    watch.answered(
+        str(resp.url),
+        resp.status_code,
+        resp.headers.get("content-type"),
+        _content_length(resp),
+        first,
+    )
+
+
 async def _pieces(
-    body: bytes, *, on_sent: Callable[[int], None] | None = None
+    body: bytes,
+    *,
+    on_sent: Callable[[int], None] | None = None,
+    watch: ProxyWatch | None = None,
 ) -> AsyncGenerator[bytes]:
-    """A body from memory in ``_SEGMENT_CHUNK`` pieces; *on_sent* as in
-    ``_cdn_body``."""
+    """A body from memory in ``_SEGMENT_CHUNK`` pieces; *on_sent* and
+    *watch* as in ``_cdn_body``."""
     sent = 0
     try:
         for start in range(0, len(body), _SEGMENT_CHUNK):
             piece = body[start : start + _SEGMENT_CHUNK]
             sent += len(piece)
             yield piece
+    except (GeneratorExit, asyncio.CancelledError):
+        if watch is not None and sent < len(body):
+            watch.aborted(sent, len(body))
+        raise
     finally:
         if on_sent is not None:
             on_sent(sent)
@@ -686,6 +820,7 @@ async def stream_file(
     head: bool = False,
     on_sent: Callable[[int], None] | None = None,
     resume: FileResume | None = None,
+    watch: ProxyWatch | None = None,
 ) -> FileAnswer:
     """A direct file streamed from its CDN for the player, byte range included.
 
@@ -699,7 +834,8 @@ async def stream_file(
     the file, resumed by *resume*'s rules after every interruption of the
     CDN (``_cdn_body``). For HEAD (*head*) the body is empty and the CDN's
     answer is closed after its headers. *on_sent* is told the bytes that
-    went out when the body ends, an aborted transfer's included.
+    went out when the body ends, an aborted transfer's included. *watch* is
+    told the answer it streams and a player's abort (``_cdn_body``).
 
     Raises ``httpx.HTTPStatusError`` for an error answer other than 416
     (closed first) and ``httpx.HTTPError`` when the CDN cannot be reached.
@@ -730,6 +866,7 @@ async def stream_file(
         head=head,
         on_sent=on_sent,
         resume=resume or FileResume(),
+        watch=watch,
     )
     return FileAnswer(resp.status_code, _file_headers(resp), body)
 
@@ -824,6 +961,9 @@ class _Transfer:
     attempt_at: int = -1
     refreshed_at: int = -1
     due: float | None = None
+    # The diagnosis log, and the CDN's first answer until it is told to it
+    watch: ProxyWatch | None = None
+    answer: httpx.Response | None = None
 
     @property
     def done(self) -> bool:
@@ -832,6 +972,7 @@ class _Transfer:
     def take(self, chunk: bytes) -> bytes:
         """The part of *chunk* past the bytes to skip and within the
         promised length, counted as sent."""
+        self._tell(chunk)
         if self.skip:
             skipped = min(self.skip, len(chunk))
             self.skip -= skipped
@@ -840,6 +981,26 @@ class _Transfer:
             chunk = chunk[: self.expected - self.sent]
         self.sent += len(chunk)
         return chunk
+
+    def _tell(self, first: bytes) -> None:
+        """The CDN's first answer with its *first* bytes told to the watch,
+        once."""
+        if self.watch is not None and self.answer is not None:
+            _watch_answer(self.watch, self.answer, first)
+        self.answer = None
+
+    def aborted(self) -> None:
+        """The player stopped the body: told to the watch unless the
+        promised bytes are sent."""
+        if self.watch is not None and not self.done:
+            self.watch.aborted(self.sent, self.expected)
+
+    def ended(self, on_sent: Callable[[int], None] | None) -> None:
+        """The body's end: a first answer without bytes (HEAD, an empty
+        body) told to the watch, the bytes sent to *on_sent*."""
+        self._tell(b"")
+        if on_sent is not None:
+            on_sent(self.sent)
 
     def cut(self, error: Exception | None) -> FileCut | SegmentCut:
         """The transfer's end short of the promise (*error*: the transport
@@ -1111,6 +1272,7 @@ async def _cdn_body(
     on_sent: Callable[[int], None] | None,
     segment: bool = False,
     resume: FileResume | None = None,
+    watch: ProxyWatch | None = None,
 ) -> AsyncGenerator[bytes]:
     """A file's (*resume*: its rules) or HLS segment's (*segment*) body in
     ``_SEGMENT_CHUNK`` pieces, the CDN's answer closed at the end; empty for
@@ -1143,10 +1305,14 @@ async def _cdn_body(
     event loop's finalizer: a body the player dropped was collected with
     its wrapper, both closed in one pass ("aclose(): asynchronous
     generator is already running", production 2026-10-07).
+
+    *watch* is told the CDN's first answer with the first bytes read (none
+    for HEAD or an empty body) and the player's stop before the body ends
+    (the generator closed or cancelled at a ``yield``), never a normal end.
     """
     encoded = segment and "content-encoding" in resp.headers
     span = (0, None, None) if encoded else _file_span(resp)
-    transfer = _Transfer(url, *span, segment=segment)
+    transfer = _Transfer(url, *span, segment=segment, watch=watch, answer=resp)
     try:
         if head:
             return
@@ -1175,10 +1341,12 @@ async def _cdn_body(
             resp, request_headers = await _go_on(
                 http_client, request_headers, timeout, resp, transfer, error, resume
             )
+    except (GeneratorExit, asyncio.CancelledError):
+        transfer.aborted()
+        raise
     finally:
         await resp.aclose()
-        if on_sent is not None:
-            on_sent(transfer.sent)
+        transfer.ended(on_sent)
 
 
 def build_cdn_url(cdn_base: str, path: str, query_string: str = "") -> str:

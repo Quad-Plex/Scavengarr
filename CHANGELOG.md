@@ -6,6 +6,12 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Added: The Proxy's First CDN Answer and Player Aborts in the Log
+
+- A player that reported an unsupported source left no line of what it got: the proxy passes the CDN's content type through and does not check the bytes. The proxy now logs the CDN's first answer of a stream once per stream id and kind: `hls_proxy_first_answer` (master, playlist, segment) and `file_proxy_first_answer` (file), with `stream_id`, `hoster`, `kind`, `cdn_host`, `status`, `content_type`, `content_length` and `first_bytes_hex` (the first 8 bytes already read, no extra fetch; the last 512 stream ids remembered). A player that stops before a segment's or a file's body ends logs `proxy_client_abort` with `bytes_sent`, `expected_bytes` and `seconds_since_first`; a normal end logs none. `stremio_play_resolved` adds `media_kind` (`hls`, `file`, `other`). Hosts only, no URL or token; the proxy's answers are unchanged.
+- Docs: `stremio-addon.md` (Observability), `observability.md` (log lines name a CDN by its host or domain).
+- Tests: `test_hls_proxy.py` (first segment logged once with content type and first bytes, another stream and kind logged, the bound, an abort with the bytes sent, no abort at a normal end, a segment fetched ahead, the file proxy's first answer once and its abort), `test_stremio_router.py` (the segment route logs once with the hoster and not for HEAD, `media_kind` per link).
+
 ### Added: Season, Episode and Plugin per Stremio Stream in the Log
 
 - A series stream of the right show but the wrong season did not show in the log which plugin and which link label gave it. Each answered stream now logs `stremio_stream_item` with the request's `imdb_id`, `req_season` and `req_episode`, the `plugin`, the `hoster`, the `link_label` (40 characters), the `label_season` and `label_episode` parsed from it and the `stream_id` (no URL). The episode filter logs `episode_filter_seasonless_pass` when it keeps a link for a season after the first only because its label names no season (`Folge 3`); the filter's behaviour is unchanged.

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
 import gzip
 import socket
 import struct
 import time
 from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -18,8 +20,10 @@ import structlog
 from scavengarr.infrastructure.plugins.constants import DEFAULT_USER_AGENT
 from scavengarr.infrastructure.stremio import hls_proxy
 from scavengarr.infrastructure.stremio.hls_proxy import (
+    AheadSegment,
     FileCut,
     FileResume,
+    ProxyWatch,
     SegmentCut,
     build_cdn_url,
     cdn_base_from_url,
@@ -34,8 +38,10 @@ from scavengarr.infrastructure.telemetry.metrics import Telemetry
 
 @pytest.fixture(autouse=True)
 def _clear_manifest_cache() -> None:
-    """Clear the module-level manifest cache between tests."""
+    """Clear the module-level manifest cache and the first answers logged
+    between tests."""
     hls_proxy._manifest_cache.clear()
+    hls_proxy._first_answers.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +599,226 @@ class TestStreamHlsSegment:
         assert sent == [65536]
         assert [r for r in results if isinstance(r, BaseException)] == []
         assert complaints == []
+
+
+def _events(logs: list[dict[str, object]], event: str) -> list[dict[str, object]]:
+    return [entry for entry in logs if entry["event"] == event]
+
+
+class TestProxyWatch:
+    """The proxy logs a stream's first CDN answer per kind and a player's
+    abort before the body ends."""
+
+    _TS = b"\x47\x40\x00\x10\x00\x00\xb0\x0d" + b"\x47" * 70000
+
+    @staticmethod
+    def _segment_cdn(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "video/mp2t"},
+            stream=_Chunks([TestProxyWatch._TS]),
+        )
+
+    async def test_the_first_segment_logs_its_answer_once(self) -> None:
+        transport = httpx.MockTransport(self._segment_cdn)
+        with structlog.testing.capture_logs() as logs:
+            async with httpx.AsyncClient(transport=transport) as client:
+                for number in (1, 2):
+                    chunks, _ = await stream_hls_segment(
+                        client,
+                        f"https://cdn.test/hls/{number}.ts?t=secret",
+                        {},
+                        watch=ProxyWatch("abc", "voe", "segment"),
+                    )
+                    [chunk async for chunk in chunks]
+
+        first = _events(logs, "hls_proxy_first_answer")
+        assert len(first) == 1
+        assert first[0]["stream_id"] == "abc"
+        assert first[0]["hoster"] == "voe"
+        assert first[0]["kind"] == "segment"
+        assert first[0]["cdn_host"] == "cdn.test"
+        assert first[0]["status"] == 200
+        assert first[0]["content_type"] == "video/mp2t"
+        assert first[0]["content_length"] is None
+        assert first[0]["first_bytes_hex"] == "474000100000b00d"
+        assert "secret" not in str(first[0])
+
+    async def test_another_stream_and_kind_log_their_own(self) -> None:
+        transport = httpx.MockTransport(self._segment_cdn)
+        with structlog.testing.capture_logs() as logs:
+            async with httpx.AsyncClient(transport=transport) as client:
+                for watch in (
+                    ProxyWatch("abc", "voe", "segment"),
+                    ProxyWatch("def", "voe", "segment"),
+                ):
+                    chunks, _ = await stream_hls_segment(
+                        client, "https://cdn.test/1.ts", {}, watch=watch
+                    )
+                    [chunk async for chunk in chunks]
+            async with respx.mock:
+                respx.get("https://cdn.test/index.m3u8").mock(
+                    return_value=httpx.Response(
+                        200,
+                        content=b"#EXTM3U\n",
+                        headers={"Content-Type": "application/vnd.apple.mpegurl"},
+                    )
+                )
+                async with httpx.AsyncClient() as client:
+                    await fetch_hls_resource(
+                        client,
+                        "https://cdn.test/index.m3u8",
+                        {},
+                        watch=ProxyWatch("abc", "voe", "master"),
+                    )
+
+        first = _events(logs, "hls_proxy_first_answer")
+        assert [(e["stream_id"], e["kind"]) for e in first] == [
+            ("abc", "segment"),
+            ("def", "segment"),
+            ("abc", "master"),
+        ]
+        assert first[2]["content_length"] == 8
+        assert first[2]["first_bytes_hex"] == b"#EXTM3U\n".hex()
+
+    async def test_the_stream_ids_remembered_are_bounded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(hls_proxy, "_FIRST_ANSWERS_MAX", 2)
+        with structlog.testing.capture_logs() as logs:
+            for stream_id in ("a", "b", "c", "a"):
+                ProxyWatch(stream_id, "voe", "segment").answered(
+                    "https://cdn.test/1.ts", 200, "video/mp2t", None, b""
+                )
+
+        assert list(hls_proxy._first_answers) == ["c", "a"]
+        assert len(_events(logs, "hls_proxy_first_answer")) == 4
+
+    async def test_a_client_abort_logs_the_bytes_sent(self) -> None:
+        body = _Chunks([b"\x47" * 65536, b"\x47" * 1000])
+
+        def _cdn(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"Content-Length": "66536"}, stream=body)
+
+        with structlog.testing.capture_logs() as logs:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(_cdn)) as client:
+                chunks, _ = await stream_hls_segment(
+                    client,
+                    "https://cdn.test/1.ts",
+                    {},
+                    watch=ProxyWatch("abc", "voe", "segment"),
+                )
+                await chunks.__anext__()
+                await chunks.aclose()
+
+        aborts = _events(logs, "proxy_client_abort")
+        assert len(aborts) == 1
+        assert aborts[0]["stream_id"] == "abc"
+        assert aborts[0]["hoster"] == "voe"
+        assert aborts[0]["kind"] == "segment"
+        assert aborts[0]["bytes_sent"] == 65536
+        assert aborts[0]["expected_bytes"] == 66536
+        assert isinstance(aborts[0]["seconds_since_first"], float)
+        assert body.closed
+
+    async def test_a_normal_end_logs_no_abort(self) -> None:
+        transport = httpx.MockTransport(self._segment_cdn)
+        with structlog.testing.capture_logs() as logs:
+            async with httpx.AsyncClient(transport=transport) as client:
+                chunks, _ = await stream_hls_segment(
+                    client,
+                    "https://cdn.test/1.ts",
+                    {},
+                    watch=ProxyWatch("abc", "voe", "segment"),
+                )
+                async with contextlib.aclosing(chunks):
+                    [chunk async for chunk in chunks]
+
+        assert _events(logs, "proxy_client_abort") == []
+
+    async def test_a_segment_fetched_ahead_logs_its_answer_and_abort(self) -> None:
+        read_ahead = MagicMock()
+        read_ahead.take = AsyncMock(
+            return_value=AheadSegment(body=self._TS, content_type="video/mp2t")
+        )
+        with structlog.testing.capture_logs() as logs:
+            async with httpx.AsyncClient() as client:
+                chunks, _ = await stream_hls_segment(
+                    client,
+                    "https://cdn.test/1.ts",
+                    {},
+                    read_ahead=read_ahead,
+                    watch=ProxyWatch("abc", "voe", "segment"),
+                )
+                await chunks.__anext__()
+                await chunks.aclose()
+
+        first = _events(logs, "hls_proxy_first_answer")
+        assert len(first) == 1
+        assert first[0]["status"] is None
+        assert first[0]["content_length"] == len(self._TS)
+        assert first[0]["first_bytes_hex"] == "474000100000b00d"
+        aborts = _events(logs, "proxy_client_abort")
+        assert [(a["bytes_sent"], a["expected_bytes"]) for a in aborts] == [
+            (65536, len(self._TS))
+        ]
+
+    async def test_the_file_proxy_logs_its_first_answer_once(self) -> None:
+        data = b"\x1a\x45\xdf\xa3\x01\x00\x00\x00" + b"\x00" * 1000
+
+        def _cdn(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "video/x-matroska", "Content-Length": "1008"},
+                stream=_Chunks([data]),
+            )
+
+        with structlog.testing.capture_logs() as logs:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(_cdn)) as client:
+                for _ in range(2):
+                    answer = await stream_file(
+                        client,
+                        "https://files.test/v/movie.mkv?token=secret",
+                        {},
+                        watch=ProxyWatch("abc", "doodstream", "file"),
+                    )
+                    [chunk async for chunk in answer.chunks]
+
+        first = _events(logs, "file_proxy_first_answer")
+        assert len(first) == 1
+        assert first[0]["kind"] == "file"
+        assert first[0]["cdn_host"] == "files.test"
+        assert first[0]["status"] == 200
+        assert first[0]["content_type"] == "video/x-matroska"
+        assert first[0]["content_length"] == 1008
+        assert first[0]["first_bytes_hex"] == "1a45dfa301000000"
+        assert "secret" not in str(first[0])
+        assert _events(logs, "hls_proxy_first_answer") == []
+        assert _events(logs, "proxy_client_abort") == []
+
+    async def test_a_file_abort_logs_the_bytes_sent(self) -> None:
+        body = _Chunks([b"\x00" * 65536, b"\x00" * 65536])
+
+        def _cdn(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, headers={"Content-Length": "131072"}, stream=body
+            )
+
+        with structlog.testing.capture_logs() as logs:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(_cdn)) as client:
+                answer = await stream_file(
+                    client,
+                    "https://files.test/movie.mp4",
+                    {},
+                    watch=ProxyWatch("abc", "doodstream", "file"),
+                )
+                await answer.chunks.__anext__()
+                await answer.chunks.aclose()
+
+        aborts = _events(logs, "proxy_client_abort")
+        assert [(a["kind"], a["bytes_sent"], a["expected_bytes"]) for a in aborts] == [
+            ("file", 65536, 131072)
+        ]
 
 
 class TestStreamFile:
