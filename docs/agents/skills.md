@@ -22,11 +22,12 @@ hook into the project's Claude Code settings. Every attach writes the user-level
 The caveman skills come from `CAVEMAN_SKILLS` in the same script.
 
 Every installed skill's description costs context in every session: add a skill
-deliberately and record it here. A skill nobody invoked for two weeks is removed: the
-advisor (Mr. Fable) keeps the list of the skills the sessions invoke, the coders name
-theirs in every push report, and a removed skill moves from `SKILL_SOURCES` to
-`RETIRED_SKILLS` in `.devcontainer/setup.sh`, which removes the installed copy on the
-next attach, and to the table [Removed](#removed).
+deliberately and record it here. Usage sets the priority of the review work, not a
+removal: the advisor (Mr. Fable) keeps the list of the skills the sessions invoke, the
+coders name theirs in every push report, and the skills used most are reviewed first.
+No skill is removed for low use. `RETIRED_SKILLS` in `.devcontainer/setup.sh` removes
+the installed copy of each skill it lists on the next attach; the table
+[Removed](#removed) names them.
 
 ## Working and communicating
 

@@ -67,7 +67,7 @@ Ties keep the order of part A, then part B.
 - Only this container's transcripts are counted; sessions on other machines are not in them.
 - Only `Skill` tool calls count. A skill followed from a `Read` or from memory is not a call; a user's slash command was searched for as a `<command-name>` entry and found 0 times (E-count), so the user-invoked skills (`handoff`, `grill-me`) have no visible use, and whether the transcripts record such commands in this form is unverified.
 - The own skills have no record count: the record leaves them out as no candidates.
-- The two-week rule of `docs/agents/skills.md` (line 25, E-context) still removes a skill nobody invoked; this review does not apply it. The conflict with "usage is not a delete criterion" is open for the owner.
+- The two-week rule that `docs/agents/skills.md` had at line 25 (E-context) removed a skill nobody invoked; this review did not apply it. The owner decided the conflict on 2026-11-09: usage sets the order of the review work, no skill is removed for low use, and `docs/agents/skills.md` says so now.
 
 ## Evidence
 
