@@ -710,8 +710,9 @@ class AppConfig(BaseModel):
             AliasPath("http", "rate_limit_adaptive"),
         ),
         description=(
-            "Enable AIMD adaptive rate limiting per domain. "
-            "Rate increases on success, halves on 429/503."
+            "Enable adaptive rate limiting per domain. Both steps are "
+            "multiplicative: the rate grows by 10 % on success and halves "
+            "on 429/503."
         ),
     )
     rate_limit_min_rps: float = Field(

@@ -1,4 +1,4 @@
-"""Tests for adaptive AIMD rate limiting."""
+"""Tests for adaptive (multiplicative) rate limiting."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from scavengarr.infrastructure.common.rate_limiter import DomainRateLimiter, Tok
 
 
 class TestTokenBucketAdaptive:
-    """AIMD behavior on TokenBucket."""
+    """Adaptive rate behavior on TokenBucket."""
 
     def test_record_success_increases_rate(self) -> None:
         bucket = TokenBucket(rate=10.0, adaptive=True, min_rate=0.5, max_rate=50.0)
@@ -43,7 +43,7 @@ class TestTokenBucketAdaptive:
         expected = 10.0 * (1.1**5)
         assert bucket.rate == pytest.approx(expected)
 
-    def test_aimd_recovery_after_throttle(self) -> None:
+    def test_recovery_after_throttle(self) -> None:
         """After throttle (halve), success slowly recovers."""
         bucket = TokenBucket(rate=10.0, adaptive=True, min_rate=0.5, max_rate=50.0)
         bucket.record_throttle()  # 10 → 5
@@ -55,7 +55,7 @@ class TestTokenBucketAdaptive:
 
 
 class TestDomainRateLimiterAdaptive:
-    """Per-domain AIMD feedback via DomainRateLimiter."""
+    """Per-domain adaptive feedback via DomainRateLimiter."""
 
     @pytest.mark.asyncio()
     async def test_record_success_on_known_domain(self) -> None:

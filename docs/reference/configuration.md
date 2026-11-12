@@ -111,7 +111,7 @@ Unprefixed `CACHE_*` variables are not read.
 | `SCAVENGARR_HTTP_API_RATE_LIMIT_RPM` (or `SCAVENGARR_API_RATE_LIMIT_RPM`) | int | `120` | API rate limit per IP (requests/minute). 0 = unlimited. |
 | `SCAVENGARR_HTTP_FOLLOW_REDIRECTS` | bool | `true` | Whether HTTP client follows redirects. |
 | `SCAVENGARR_HTTP_HTTP2` | bool | `false` | Offer HTTP/2 on outgoing connections (several requests to one host share a connection). Off by default: not faster per se, measure it. |
-| `SCAVENGARR_HTTP_RATE_LIMIT_ADAPTIVE` (or `SCAVENGARR_RATE_LIMIT_ADAPTIVE`) | bool | `true` | Enable AIMD adaptive rate limiting per domain. Rate increases on success, halves on 429/503. |
+| `SCAVENGARR_HTTP_RATE_LIMIT_ADAPTIVE` (or `SCAVENGARR_RATE_LIMIT_ADAPTIVE`) | bool | `true` | Enable adaptive rate limiting per domain. Both steps are multiplicative: the rate grows by 10 % on success and halves on 429/503. |
 | `SCAVENGARR_HTTP_RATE_LIMIT_MAX_RPS` (or `SCAVENGARR_RATE_LIMIT_MAX_RPS`) | float | `50.0` | Maximum adaptive rate per domain (rps). |
 | `SCAVENGARR_HTTP_RATE_LIMIT_MIN_RPS` (or `SCAVENGARR_RATE_LIMIT_MIN_RPS`) | float | `0.5` | Minimum adaptive rate per domain (rps). |
 | `SCAVENGARR_HTTP_RATE_LIMIT_RPS` (or `SCAVENGARR_RATE_LIMIT_REQUESTS_PER_SECOND`) | float | `5.0` | Default per-domain rate limit (requests/second). 0 = unlimited. |
