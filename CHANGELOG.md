@@ -6,6 +6,12 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Added: Tests Guard the Rate Limiter's Domain Grouping and Wiring
+
+- A regression in the rate limiter's domain grouping or in its wiring passed the tests. `test_adaptive_rate_limiter.py` now throttles one URL and expects `www.example.com` and `example.org` to slow down with it (one bucket per domain name), and `test_http_client_wiring.py` builds the shared HTTP client from a config and checks that the adaptive switch and the min and max rps reach the limiter. No behaviour changed.
+- Docs: `configuration.md` states the rate limit notes exactly (a 429 or 503 with a CDN cache-hit header feeds nothing back, link checks pass the bucket without a token), and the `rate_limiter.py` docstring names the 10 % raise as multiplicative.
+- The description of `http.rate_limit_adaptive` no longer says AIMD: both steps are multiplicative (+10 % on success, halved on 429/503); `configuration.md` regenerated.
+
 ### Added: The Proxy's First CDN Answer and Player Aborts in the Log
 
 - A player that reported an unsupported source left no line of what it got: the proxy passes the CDN's content type through and does not check the bytes. The proxy now logs the CDN's first answer of a stream once per stream id and kind: `hls_proxy_first_answer` (master, playlist, segment) and `file_proxy_first_answer` (file), with `stream_id`, `hoster`, `kind`, `cdn_host`, `status`, `content_type`, `content_length` and `first_bytes_hex` (the first 8 bytes already read, no extra fetch; the last 512 stream ids remembered). A player that stops before a segment's or a file's body ends logs `proxy_client_abort` with `bytes_sent`, `expected_bytes` and `seconds_since_first`; a normal end logs none. `stremio_play_resolved` adds `media_kind` (`hls`, `file`, `other`). Hosts only, no URL or token; the proxy's answers are unchanged.
