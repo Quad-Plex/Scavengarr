@@ -35,9 +35,9 @@ the installed copy of each skill it lists on the next attach; the table
 |---|---|---|
 | `caveman` | JuliusBrussee/caveman | terse answer style in the chat (not for docs, code or commits) |
 | `ponytail` | DietrichGebert/ponytail | the smallest complete change, no over-engineering (every coding task) |
-| `handoff` | mattpocock/skills | the hand-over document before a session change |
-| `recall` | pwguler/skills | reconstruct the state from earlier sessions |
-| `reflect` | pwguler/skills | record the lessons at a session's end |
+| `handoff` | mattpocock/skills | the hand-over document before a session change; user-invoked only (`disable-model-invocation`) |
+| `recall` | pwguler/skills | reconstruct the state from earlier sessions; user-invoked only (`disable-model-invocation`), so a headless task cannot run it |
+| `reflect` | pwguler/skills | record the lessons at a session's end; user-invoked only (`disable-model-invocation`), so a headless task cannot run it |
 | `humanizer` | blader/humanizer (pinned `v3.1.0`) | smooth prose that reads as machine-written; 4.0.0 may add a detail the text did not have, which docs built on evidence cannot take |
 | `writing-for-agents` | mattpocock/skills | changes to `AGENTS.md`, skills and briefs (required) |
 
@@ -45,12 +45,12 @@ the installed copy of each skill it lists on the next attach; the table
 
 | Skill | Source | Use |
 |---|---|---|
-| `brainstorming` | obra/superpowers | before new functionality; produces questions with at least three options (required) |
-| `grill-me` | mattpocock/skills | sharpen a plan or decision with the user |
+| `brainstorming` | obra/superpowers | before new functionality (required); the design goes to `docs/plans/` or, for a spec change, `openspec/changes/`, not to the skill's `docs/superpowers/specs/`; at least three options per decision is the owner's rule, the skill sets no count |
+| `grill-me` | mattpocock/skills | sharpen a plan or decision with the user; user-invoked only (`disable-model-invocation`) |
 | `writing-plans` | obra/superpowers | a plan in `docs/plans/` before a change across several files (required) |
 | `spec-driven-development` | addyosmani/agent-skills | a target document where no specification exists |
-| `domain-modeling` | mattpocock/skills | glossary and data model |
-| `documentation-and-adrs` | addyosmani/agent-skills | a new ADR |
+| `domain-modeling` | mattpocock/skills | glossary and data model; the glossary is `docs/reference/glossary.md`, not a `GLOSSARY.md` |
+| `documentation-and-adrs` | addyosmani/agent-skills | a new ADR in `docs/target/decisions/`, not the skill's `docs/adr/` or `docs/decisions/` |
 | `research` | mattpocock/skills | research against primary sources |
 | `api-and-interface-design` | addyosmani/agent-skills | contracts, ports and module boundaries |
 | `codebase-design` | mattpocock/skills | the cut of packages and modules |
@@ -61,13 +61,13 @@ the installed copy of each skill it lists on the next attach; the table
 |---|---|---|
 | `test-driven-development` | obra/superpowers | every piece of business logic, every bug fix (required) |
 | `executing-plans` | obra/superpowers | work through a plan in the session itself |
-| `subagent-driven-development` | obra/superpowers | a plan with independent tasks for subagents |
+| `subagent-driven-development` | obra/superpowers | a plan with independent tasks for subagents, within `AGENTS.md` section 8: only mechanical, fully specified tasks |
 | `dispatching-parallel-agents` | obra/superpowers | two independent tasks at the same time |
 | `incremental-implementation` | addyosmani/agent-skills | small, verifiable steps |
 | `code-simplification` | addyosmani/agent-skills | refactoring without a change of behaviour |
 | `impeccable` | pbakaus/impeccable | interfaces, design system, accessibility |
 | `observability-and-instrumentation` | addyosmani/agent-skills | logs, metrics, traces |
-| `performance-optimization` | addyosmani/agent-skills | queries, projections, load assumptions |
+| `performance-optimization` | addyosmani/agent-skills | the latency of the I/O paths (searches, link validation, resolution), measured as `docs/how-to/performance-measurement.md` says; not the skill's Core Web Vitals |
 | `ci-cd-and-automation` | addyosmani/agent-skills | GitHub Actions, pre-commit |
 | `diagram-design` | cathrynlavery/diagram-design | diagrams beyond Mermaid |
 | `graphify` | Graphify-Labs/graphify (own installer, `graphify install`) | structure and dependency questions about the code base |
