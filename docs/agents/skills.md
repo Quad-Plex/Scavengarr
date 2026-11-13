@@ -9,7 +9,7 @@ repository. `.devcontainer/setup.sh` installs them on every attach with the pinn
 `skills` CLI (`SKILL_SOURCES`), one call per source:
 
 ```bash
-npx -y skills@1.7.2 add obra/superpowers -g -y -a claude-code -s brainstorming
+npx -y skills@1.8.1 add obra/superpowers -g -y -a claude-code -s brainstorming
 ```
 
 graphify is a Python package with an installer of its own (`pipx install graphifyy`,
