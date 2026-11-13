@@ -19,7 +19,7 @@ points `/graphify` at it; the `graphify-mcp` server it ships is not wired). It s
 user-wide: its project option (`graphify install --project`) writes a `CLAUDE.md` into
 the repository root, where `AGENTS.md` is the one instruction file, and a PreToolUse
 hook into the project's Claude Code settings. Every attach writes the user-level `CLAUDE.md` again.
-The caveman skills come from `CAVEMAN_SKILLS` in the same script.
+The caveman skill comes from `CAVEMAN_SKILLS` in the same script, which lists `caveman` only.
 
 Every installed skill's description costs context in every session: add a skill
 deliberately and record it here. Usage sets the priority of the review work, not a
