@@ -58,6 +58,28 @@ The raw command output behind every claim is in the evidence section; a label su
 - No source is archived; all 11 sources answered (E-upstream).
 - The skills of this environment are not in `$HOME/.claude/skills`, where `setup.sh` installs and retires them, but in a mount (E-repo); `setup.sh` does not build this environment's set.
 
+## Phase 2 decisions
+
+The owner handed the cases `zusammenlegen` and `fraglich` to phase 2. The owner decision of 2026-11-09 allows two results: keep, or keep with a scope line in `docs/agents/skills.md` (use for X, not for Y). No skill is removed and no external skill is forked.
+`$S` is `/opt/coding-skills/.claude/skills`.
+
+| Case | Decision | Evidence (command: output) |
+|---|---|---|
+| `api-and-interface-design` vs `codebase-design` | Keep both, with scope lines. `codebase-design` is the primary skill for module interfaces (ports, seams, the cut of modules). `api-and-interface-design` covers the HTTP contracts of `src/scavengarr/interfaces/api/`. | `grep -h -m1 -E '^description:' $S/api-and-interface-design/SKILL.md $S/codebase-design/SKILL.md`: "Use when designing APIs, module boundaries, or any public interface. Use when creating REST or GraphQL endpoints, ..." and "Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, ... decide where a seam goes, ...". `ls src/scavengarr/interfaces/api`: `download`, `middleware.py`, `stats`, `stremio`, `torznab`. |
+| `spec-driven-development` vs OpenSpec | Keep, with a scope line. The repository uses OpenSpec, so a spec change is an OpenSpec proposal in `openspec/changes/`. The skill only settles unclear requirements where `openspec/specs/` has no spec yet. | `ls openspec/changes openspec/specs`: 6 entries in `changes/` (`add-container-image`, `add-stall-watchdog`, `archive`, `keep-capture-state`, `react-to-challenges`, `resume-idle-reset-files`) and 10 specs (`configuration` to `stremio-stream-quality`). |
+| `code-simplification` vs the built-in `simplify` | Keep, with a scope line. The built-in `/simplify` exists and reviews the changed code of a diff. The skill is for a planned refactoring of existing code. | `grep -a -o -m1 'Review the changed code for reuse, simplification, efficiency' /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe`: the string, `exit=0`. |
+| `impeccable` | Keep, with a scope line. Use it only for a user interface of the project (there is none now), not for the site pages in `tests/fixtures/`. | `git ls-files '*.html' '*.css' '*.js' '*.ts' '*.tsx' '*.vue'`: 6 files, all in `tests/fixtures/domain_lists/`. |
+| `diagram-design` | Keep, with a scope line. Use it only for a diagram that Mermaid cannot draw. | `printf 'svg=%s mermaid_docs=%s\n' "$(git ls-files '*.svg' \| wc -l)" "$(grep -rl -i mermaid docs \| wc -l)"`: `svg=0 mermaid_docs=15` (phase 1 counted 14). |
+
+The release notes read in phase 2, before a refresh or a bump:
+
+- superpowers v7.0.2: brainstorming gives its options with a recommendation and asks fewer questions, and the subagent-driven-development helpers take `-C`. Nothing breaks the use here, so the unpinned source stays as it is.
+- humanizer 4.0.0: "A rewrite may now contain a detail that was not in your text. If you rely on the old rule, stay on v3.1.0." The docs rest on evidence, so `SKILL_SOURCES` pins `blader/humanizer@v3.1.0`.
+- impeccable 4.8.2: the changes are on the side of its CLI (outage messages, `OPENAI_BASE_URL`, `impeccable agents`). The skill keeps its use. 4.9.0 makes the CLI upload data when signed in. The CLI is not installed here.
+- skills CLI 1.8.1: list options such as `-s` still take several values in `add` and `remove`, and the Node engine stays `>=22.20.0`. `owner/repo@v1.2.3` checks out a tag (1.8.0). A live run into a temporary config directory added 3 skills and removed 1, with `exit=0` each. npx also gives `exit=0` when a copy fails, so the `|| echo WARN` lines of `setup.sh` do not catch such a failure.
+
+A refresh needs no change of `setup.sh`: every attach installs the upstream `HEAD` of each unpinned source. The copies in `$S` come from an image built outside this repository, which pins its own commits (superpowers at v7.0.1). That image also still installs the retired `code-review`. Both are follow-ups for the owner of that build.
+
 ## Limits
 
 - Only `SKILL.md` is compared; the other files of a skill folder (references, scripts) are not.

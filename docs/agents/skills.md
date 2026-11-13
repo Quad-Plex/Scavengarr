@@ -48,12 +48,12 @@ the installed copy of each skill it lists on the next attach; the table
 | `brainstorming` | obra/superpowers | before new functionality (required); the design goes to `docs/plans/` or, for a spec change, `openspec/changes/`, not to the skill's `docs/superpowers/specs/`; at least three options per decision is the owner's rule, the skill sets no count |
 | `grill-me` | mattpocock/skills | sharpen a plan or decision with the user; user-invoked only (`disable-model-invocation`) |
 | `writing-plans` | obra/superpowers | a plan in `docs/plans/` before a change across several files (required) |
-| `spec-driven-development` | addyosmani/agent-skills | a target document where no specification exists |
+| `spec-driven-development` | addyosmani/agent-skills | settle unclear requirements where `openspec/specs/` has no spec yet; the spec change itself is an OpenSpec proposal in `openspec/changes/` (`openspec/AGENTS.md`), not the skill's `docs/` file |
 | `domain-modeling` | mattpocock/skills | glossary and data model; the glossary is `docs/reference/glossary.md`, not a `GLOSSARY.md` |
 | `documentation-and-adrs` | addyosmani/agent-skills | a new ADR in `docs/target/decisions/`, not the skill's `docs/adr/` or `docs/decisions/` |
 | `research` | mattpocock/skills | research against primary sources |
-| `api-and-interface-design` | addyosmani/agent-skills | contracts, ports and module boundaries |
-| `codebase-design` | mattpocock/skills | the cut of packages and modules |
+| `api-and-interface-design` | addyosmani/agent-skills | the HTTP contracts of `src/scavengarr/interfaces/api/` (Torznab, Stremio, stats, download); not for module interfaces, which `codebase-design` covers |
+| `codebase-design` | mattpocock/skills | the primary skill for module interfaces: ports, seams and the cut of packages and modules |
 
 ## Building
 
@@ -64,12 +64,12 @@ the installed copy of each skill it lists on the next attach; the table
 | `subagent-driven-development` | obra/superpowers | a plan with independent tasks for subagents, within `AGENTS.md` section 8: only mechanical, fully specified tasks |
 | `dispatching-parallel-agents` | obra/superpowers | two independent tasks at the same time |
 | `incremental-implementation` | addyosmani/agent-skills | small, verifiable steps |
-| `code-simplification` | addyosmani/agent-skills | refactoring without a change of behaviour |
-| `impeccable` | pbakaus/impeccable | interfaces, design system, accessibility |
+| `code-simplification` | addyosmani/agent-skills | a planned refactoring of existing code without a change of behaviour; the changed code of a diff goes to Claude Code's built-in `/simplify` |
+| `impeccable` | pbakaus/impeccable | a user interface of the project, should one come (there is none); not for the site pages in `tests/fixtures/` |
 | `observability-and-instrumentation` | addyosmani/agent-skills | logs, metrics, traces |
 | `performance-optimization` | addyosmani/agent-skills | the latency of the I/O paths (searches, link validation, resolution), measured as `docs/how-to/performance-measurement.md` says; not the skill's Core Web Vitals |
 | `ci-cd-and-automation` | addyosmani/agent-skills | GitHub Actions, pre-commit |
-| `diagram-design` | cathrynlavery/diagram-design | diagrams beyond Mermaid |
+| `diagram-design` | cathrynlavery/diagram-design | only a diagram that Mermaid cannot draw; the docs draw theirs in Mermaid |
 | `graphify` | Graphify-Labs/graphify (own installer, `graphify install`) | structure and dependency questions about the code base |
 
 ## Checking
