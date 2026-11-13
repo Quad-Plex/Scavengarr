@@ -38,7 +38,7 @@ the installed copy of each skill it lists on the next attach; the table
 | `handoff` | mattpocock/skills | the hand-over document before a session change |
 | `recall` | pwguler/skills | reconstruct the state from earlier sessions |
 | `reflect` | pwguler/skills | record the lessons at a session's end |
-| `humanizer` | blader/humanizer | smooth prose that reads as machine-written |
+| `humanizer` | blader/humanizer (pinned `v3.1.0`) | smooth prose that reads as machine-written; 4.0.0 may add a detail the text did not have, which docs built on evidence cannot take |
 | `writing-for-agents` | mattpocock/skills | changes to `AGENTS.md`, skills and briefs (required) |
 
 ## Planning and deciding

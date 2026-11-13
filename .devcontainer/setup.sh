@@ -57,12 +57,13 @@ npx -y "$SKILLS_CLI" add JuliusBrussee/caveman -g -a claude-code -s "${CAVEMAN_S
 
 # The skill set of docs/agents/skills.md: one `skills add` per source repository,
 # non-interactive, with the pinned CLI. Optional tooling, so failures only warn.
+# `@<tag>` pins a source; humanizer stays on v3.1.0, whose rewrites add no facts.
 SKILL_SOURCES=(
   "obra/superpowers brainstorming writing-plans test-driven-development executing-plans subagent-driven-development dispatching-parallel-agents systematic-debugging verification-before-completion requesting-code-review receiving-code-review"
   "mattpocock/skills handoff writing-for-agents grill-me domain-modeling research codebase-design"
   "pwguler/skills recall reflect rubric"
   "DietrichGebert/ponytail ponytail ponytail-review ponytail-audit ponytail-debt"
-  "blader/humanizer humanizer"
+  "blader/humanizer@v3.1.0 humanizer"
   "addyosmani/agent-skills spec-driven-development documentation-and-adrs api-and-interface-design incremental-implementation code-simplification observability-and-instrumentation performance-optimization ci-cd-and-automation"
   "pbakaus/impeccable impeccable"
   "cathrynlavery/diagram-design diagram-design"
