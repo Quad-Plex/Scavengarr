@@ -8,9 +8,9 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ### Fixed: streamkiste Follows the 2026-11 Next.js Front End
 
-- streamkiste moved to `streamkiste.onl`: the old DLE mirrors redirect there or are dead, and the site serves a Next.js search at `GET /suche?q=` that caps the hit list on one page. The plugin searches that page and parses its `div.grid a.cv` cards (`div.cv-t` title or the `title` attribute, `div.cv-m` year or "Serie", `span.qual b` badges, `span.tag-serie` marks a series); the 2026-10 DLE parsers stay for archived captures, no live host serves them.
+- streamkiste moved to `streamkiste.onl`: the old DLE mirrors redirect there or are dead, and the site serves a Next.js search at `GET /suche?q=` that caps the hit list on one page. The plugin searches that page and parses its `div.grid a.cv` cards (`div.cv-t` title or the `title` attribute, `div.cv-m` year or "Serie", `span.qual b` badges, `span.tag-serie` marks a series); the 2026-10 DLE parsers and their tests are removed.
 - Detail pages: `og:type` names the kind (`video.tv_show`), `og:description` is the site's SEO blurb, and the body carries the year (`span.sk-det-jahr`), genres (`div.sk-det-genres a`), rating (`span.sk-stern`) and the plot (`div.sk-det-trama`), which the parser prefers. The devideosrc player (`/movie/tt…`, `/serial/tt…`) names the kind as well, so link resolution is unchanged.
-- Domains: `streamkiste.onl` first and `streamkiste.bid` as the old host (its 301 leads back to `.onl`); `.taxi`, `.tv`, `.sx`, `.al` and `.city` are gone (dead or parked since 2026-11).
+- Domains: `streamkiste.onl` only. `streamkiste.bid` is a 301 to it, and `.taxi`, `.tv`, `.sx`, `.al` and `.city` are dead or parked since 2026-11, so all of them are gone.
 - Tests: `test_streamkiste_plugin.py` (a CV card, the zero-hit page, duplicate cards, the title fallback, a series card, Open Graph and page-body metadata, one search page) and `test_real_pages.py` against pages captured from the new site.
 
 ### Added: Tests Guard the Rate Limiter's Domain Grouping and Wiring

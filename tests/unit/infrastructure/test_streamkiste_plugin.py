@@ -6,7 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -33,8 +33,6 @@ _StreamkistePlugin = _mod.StreamkistePlugin
 _SearchResultParser = _mod._SearchResultParser
 _DetailPageParser = _mod._DetailPageParser
 _clean_title = _mod._clean_title
-_detect_series = _mod._detect_series
-_parse_release_text = _mod._parse_release_text
 
 
 def _make_plugin() -> object:
@@ -50,25 +48,19 @@ def _make_plugin() -> object:
 
 _SEARCH_HTML = """\
 <html><body>
-<div class="movie-preview res_item">
-  <div class="movie-title">
-    <a href="/film/12345-batman-begins.html" title="Batman Begins">Batman Begins</a>
-  </div>
-  <div class="movie-release">2025 - Action Abenteuer kinofilme</div>
-  <div class="ico-bar">
-    <span class="icon-hd"></span>
-  </div>
-</div>
-
-<div class="movie-preview res_item">
-  <div class="movie-title">
-    <a href="/film/67890-stranger-things.html" title="Stranger Things">\
-Stranger Things</a>
-  </div>
-  <div class="movie-release">2024 - Drama Serien</div>
-  <div class="ico-bar">
-    <span class="icon-hd"></span>
-  </div>
+<div class="grid">
+  <a class="cv" href="/movie/12345-batman-begins-stream-kostenlos"
+     title="Batman Begins">
+    <div class="cv-art"><span class="qual"><b>HD</b></span></div>
+    <div class="cv-t">Batman Begins</div>
+    <div class="cv-m">2025</div>
+  </a>
+  <a class="cv" href="/movie/67890-stranger-things-stream-kostenlos"
+     title="Stranger Things">
+    <div class="cv-art"><span class="tag-serie">Serie</span></div>
+    <div class="cv-t">Stranger Things</div>
+    <div class="cv-m">Serie</div>
+  </a>
 </div>
 </body></html>
 """
@@ -91,57 +83,43 @@ def _player_script(imdb: str) -> str:
 
 
 _DETAIL_HTML = f"""\
-<html><body>
-<div class="info-right">
-  <div class="title"><h1>Batman Begins</h1></div>
-  <span class="release">(2025)</span>
-  <div class="categories">
-    <a href="/action/">Action</a>
-    <a href="/abenteuer/">Abenteuer</a>
-  </div>
-  <p>Ein junger Bruce Wayne reist nach Osten, um dort Kampftechniken zu erlernen.</p>
+<html><head>
+<meta property="og:type" content="video.movie">
+<meta property="og:description" content="Batman Begins (2025) auf StreamKiste.">
+<title>Batman Begins (2025) Stream Deutsch | StreamKiste</title>
+</head><body>
+<h1>Batman Begins</h1>
+<span class="sk-det-jahr">(2025)</span>
+<div class="sk-det-genres">
+  <a href="/genre/action/">Action</a><a href="/genre/abenteuer/">Abenteuer</a>
 </div>
-<div class="average"><span>7.8</span></div>
+<span class="sk-stern">7,8</span>
+<div class="sk-det-trama"><p>Ein junger Bruce Wayne reist nach Osten, um dort
+Kampftechniken zu erlernen.</p></div>
 {_player_script("tt0372784")}
 </body></html>
 """
 
 _SERIES_DETAIL_HTML = f"""\
-<html><body>
-<div class="info-right">
-  <div class="title"><h1>Stranger Things Serie</h1></div>
-  <span class="release">(2024)</span>
-  <div class="categories">
-    <a href="/drama/">Drama</a>
-    <a href="/serien/">Serien</a>
-  </div>
-  <p>Nach dem Verschwinden eines Jungen werden Ereignisse aufgedeckt.</p>
+<html><head>
+<meta property="og:type" content="video.tv_show">
+<meta property="og:description" content="Stranger Things auf StreamKiste.">
+<title>Stranger Things Stream Deutsch | StreamKiste</title>
+</head><body>
+<h1>Stranger Things</h1>
+<span class="sk-det-jahr">(2024)</span>
+<div class="sk-det-genres">
+  <a href="/genre/drama/">Drama</a><a href="/genre/serien/">Serien</a>
 </div>
-<div class="average"><span>8.7</span></div>
+<span class="sk-stern">8,7</span>
+<div class="sk-det-trama"><p>Nach dem Verschwinden eines Jungen werden
+Ereignisse aufgedeckt.</p></div>
 {_player_script("tt4574334")}
 </body></html>
 """
 
 _EMPTY_DETAIL_HTML = """\
-<html><body>
-<div class="info-right">
-  <div class="title"><h1>No Streams</h1></div>
-</div>
-</body></html>
-"""
-
-_ANIME_SEARCH_HTML = """\
-<html><body>
-<div class="movie-preview res_item">
-  <div class="movie-title">
-    <a href="/film/11111-one-piece.html" title="One Piece">One Piece</a>
-  </div>
-  <div class="movie-release">2023 - Animation Action Serien</div>
-  <div class="ico-bar">
-    <span class="icon-hd"></span>
-  </div>
-</div>
-</body></html>
+<html><body><h1>No Streams</h1></body></html>
 """
 
 _EMBED_LINKS = "https://devideosrc.co/api/embed-links"
@@ -217,17 +195,17 @@ def _mock_site(search_html: str, details: dict[str, str]) -> None:
     respx.post(_EMBED_LINKS).mock(side_effect=_embed_links)
 
 
-_BATMAN_URL = _BASE + "/film/12345-batman-begins.html"
-_ST_URL = _BASE + "/film/67890-stranger-things.html"
+_BATMAN_URL = _BASE + "/movie/12345-batman-begins-stream-kostenlos"
+_ST_URL = _BASE + "/movie/67890-stranger-things-stream-kostenlos"
 _BOTH_DETAILS = {_BATMAN_URL: _DETAIL_HTML, _ST_URL: _SERIES_DETAIL_HTML}
 
 
-def _single_search(title: str, href: str, release: str = "2025 - Action") -> str:
+def _single_search(title: str, href: str, release: str = "2025") -> str:
+    year = release[:4]
     return f"""\
-<div class="movie-preview res_item">
-  <div class="movie-title"><a href="{href}" title="{title}">{title}</a></div>
-  <div class="movie-release">{release}</div>
-</div>
+<div class="grid"><a class="cv" href="{href}" title="{title}">
+  <div class="cv-t">{title}</div><div class="cv-m">{year}</div>
+</a></div>
 """
 
 
@@ -253,170 +231,6 @@ class TestCleanTitle:
 
     def test_strips_whitespace(self) -> None:
         assert _clean_title("  Batman  ") == "Batman"
-
-
-class TestDetectSeries:
-    """Tests for _detect_series."""
-
-    def test_detects_from_serien_genre(self) -> None:
-        assert _detect_series(["Drama", "Serien"]) is True
-
-    def test_detects_from_serie_genre(self) -> None:
-        assert _detect_series(["Drama", "Serie"]) is True
-
-    def test_not_series(self) -> None:
-        assert _detect_series(["Action", "Drama"]) is False
-
-    def test_empty_genres(self) -> None:
-        assert _detect_series([]) is False
-
-
-class TestParseReleaseText:
-    """Tests for _parse_release_text."""
-
-    def test_year_and_genres(self) -> None:
-        year, genres = _parse_release_text("2025 - Action Komödie Krimi kinofilme")
-        assert year == "2025"
-        assert "Action" in genres
-        assert "Komödie" in genres
-        assert "Krimi" in genres
-        assert "kinofilme" not in genres
-
-    def test_year_only(self) -> None:
-        year, genres = _parse_release_text("2025")
-        assert year == "2025"
-        assert genres == []
-
-    def test_genres_only(self) -> None:
-        year, genres = _parse_release_text("Action Drama")
-        assert year == ""
-        assert genres == ["Action", "Drama"]
-
-    def test_empty_text(self) -> None:
-        year, genres = _parse_release_text("")
-        assert year == ""
-        assert genres == []
-
-    def test_year_no_dash(self) -> None:
-        year, genres = _parse_release_text("2025 Action")
-        assert year == "2025"
-        assert genres == ["Action"]
-
-
-# ---------------------------------------------------------------------------
-# Parser unit tests
-# ---------------------------------------------------------------------------
-
-
-class TestSearchResultParser:
-    """Tests for _SearchResultParser."""
-
-    def test_parses_search_results(self) -> None:
-        parser = _SearchResultParser("https://streamkiste.bid")
-        parser.feed(_SEARCH_HTML)
-
-        assert len(parser.results) == 2
-
-        first = parser.results[0]
-        assert first["title"] == "Batman Begins"
-        assert first["url"] == "https://streamkiste.bid/film/12345-batman-begins.html"
-        assert first["year"] == "2025"
-        assert "Action" in first["genres"]
-        assert "Abenteuer" in first["genres"]
-        assert first["quality"] == "HD"
-        assert first["is_series"] is False
-
-        second = parser.results[1]
-        assert second["title"] == "Stranger Things"
-        assert second["year"] == "2024"
-        assert second["is_series"] is True
-
-    def test_empty_page(self) -> None:
-        parser = _SearchResultParser("https://streamkiste.bid")
-        parser.feed("<html><body>No results</body></html>")
-        assert len(parser.results) == 0
-
-    def test_card_without_title_link_skipped(self) -> None:
-        html = """\
-        <div class="movie-preview res_item">
-          <div class="movie-release">2025 - Action</div>
-        </div>
-        """
-        parser = _SearchResultParser("https://streamkiste.bid")
-        parser.feed(html)
-        assert len(parser.results) == 0
-
-    def test_anime_search_result(self) -> None:
-        parser = _SearchResultParser("https://streamkiste.bid")
-        parser.feed(_ANIME_SEARCH_HTML)
-
-        assert len(parser.results) == 1
-        result = parser.results[0]
-        assert result["title"] == "One Piece"
-        assert result["is_series"] is True
-        assert "Animation" in result["genres"]
-
-    def test_title_from_text_fallback(self) -> None:
-        """Title from link text when title attr is missing."""
-        html = """\
-        <div class="movie-preview res_item">
-          <div class="movie-title">
-            <a href="/film/99999-test.html">Test Movie</a>
-          </div>
-          <div class="movie-release">2025 - Action</div>
-        </div>
-        """
-        parser = _SearchResultParser("https://streamkiste.bid")
-        parser.feed(html)
-
-        assert len(parser.results) == 1
-        assert parser.results[0]["title"] == "Test Movie"
-
-
-class TestDetailPageParser:
-    """Tests for _DetailPageParser (metadata only)."""
-
-    def test_parses_metadata(self) -> None:
-        parser = _DetailPageParser(_BASE)
-        parser.feed(_DETAIL_HTML)
-
-        assert parser.title == "Batman Begins"
-        assert parser.year == "2025"
-        assert parser.imdb_rating == "7.8"
-        assert parser.genres == ["Action", "Abenteuer"]
-        assert parser.is_series is False
-
-    def test_parses_description(self) -> None:
-        parser = _DetailPageParser(_BASE)
-        parser.feed(_DETAIL_HTML)
-
-        assert "Kampftechniken" in parser.description
-
-    def test_series_detail(self) -> None:
-        parser = _DetailPageParser(_BASE)
-        parser.feed(_SERIES_DETAIL_HTML)
-
-        assert parser.title == "Stranger Things"
-        assert parser.is_series is True
-        assert parser.year == "2024"
-        assert parser.imdb_rating == "8.7"
-
-    def test_empty_detail(self) -> None:
-        parser = _DetailPageParser(_BASE)
-        parser.feed(_EMPTY_DETAIL_HTML)
-
-        assert parser.title == "No Streams"
-        assert parser.is_series is False
-
-    def test_imdb_rating_extraction(self) -> None:
-        parser = _DetailPageParser(_BASE)
-        parser.feed('<div class="average"><span>8.5</span></div>')
-        assert parser.imdb_rating == "8.5"
-
-
-# ---------------------------------------------------------------------------
-# Plugin integration tests (respx)
-# ---------------------------------------------------------------------------
 
 
 class TestStreamkistePluginAttributes:
@@ -634,7 +448,9 @@ class TestStreamkistePluginSearch:
         """Series player without token -> movie player answers."""
         plug = _make_plugin()
         _mock_site(
-            _single_search("Batman Begins", "/film/12345-batman-begins.html"),
+            _single_search(
+                "Batman Begins", "/movie/12345-batman-begins-stream-kostenlos"
+            ),
             {_BATMAN_URL: _DETAIL_HTML},
         )
 
@@ -661,7 +477,9 @@ class TestStreamkistePluginSearch:
         plug = _make_plugin()
         _mock_site(
             _single_search(
-                "Stranger Things", "/film/67890-stranger-things.html", "2024 - Serien"
+                "Stranger Things",
+                "/movie/67890-stranger-things-stream-kostenlos",
+                "2024 - Serien",
             ),
             {_ST_URL: _SERIES_DETAIL_HTML},
         )
@@ -684,7 +502,9 @@ class TestStreamkistePluginSearch:
         plug = _make_plugin()
         _mock_site(
             _single_search(
-                "Stranger Things", "/film/67890-stranger-things.html", "2024 - Serien"
+                "Stranger Things",
+                "/movie/67890-stranger-things-stream-kostenlos",
+                "2024 - Serien",
             ),
             {_ST_URL: _SERIES_DETAIL_HTML},
         )
@@ -740,8 +560,8 @@ class TestStreamkistePluginSearch:
     @pytest.mark.asyncio
     async def test_detail_page_error_skips_result(self) -> None:
         plug = _make_plugin()
-        _mock_site(_single_search("Test", "/film/12345-test.html"), {})
-        respx.get(_BASE + "/film/12345-test.html").respond(500)
+        _mock_site(_single_search("Test", "/movie/12345-test-stream-kostenlos"), {})
+        respx.get(_BASE + "/movie/12345-test-stream-kostenlos").respond(500)
 
         results = await plug.search("test")
         await plug.cleanup()
@@ -752,9 +572,10 @@ class TestStreamkistePluginSearch:
     @pytest.mark.asyncio
     async def test_detail_without_player_skips_result(self) -> None:
         plug = _make_plugin()
-        url = _BASE + "/film/12345-test.html"
+        url = _BASE + "/movie/12345-test-stream-kostenlos"
         _mock_site(
-            _single_search("Test", "/film/12345-test.html"), {url: _EMPTY_DETAIL_HTML}
+            _single_search("Test", "/movie/12345-test-stream-kostenlos"),
+            {url: _EMPTY_DETAIL_HTML},
         )
 
         results = await plug.search("test")
@@ -847,61 +668,6 @@ class TestStreamkisteCategoryFiltering:
         await plug.cleanup()
 
         assert [r.title for r in results] == ["Stranger Things"]
-
-
-class TestStreamkisteDomainFallback:
-    """Tests for multi-domain fallback."""
-
-    @pytest.mark.asyncio
-    async def test_uses_first_working_domain(self) -> None:
-        plug = _StreamkistePlugin()
-        mock_client = AsyncMock()
-
-        # The primary domain fails; the old host answers, but its 301 means the
-        # check pins the final URL (.onl), which is what production sees.
-        ok_resp = MagicMock()
-        ok_resp.status_code = 200
-        ok_resp.url = httpx.URL("https://streamkiste.onl/")
-        mock_client.head = AsyncMock(
-            side_effect=[
-                httpx.ConnectError("streamkiste.onl down"),
-                ok_resp,
-            ]
-        )
-
-        plug._client = mock_client
-        await plug._verify_domain()
-
-        assert plug.base_url == "https://streamkiste.onl"
-        assert plug._domain_verified is True
-
-    @pytest.mark.asyncio
-    async def test_no_domain_reachable(self) -> None:
-        plug = _StreamkistePlugin()
-        mock_client = AsyncMock()
-
-        # All domains fail
-        mock_client.head = AsyncMock(side_effect=httpx.ConnectError("all down"))
-
-        plug._client = mock_client
-        with pytest.raises(PluginUnreachableError):
-            await plug._verify_domain()
-
-        assert plug.base_url == "https://streamkiste.onl"
-        assert plug._domain_verified is False
-
-    @pytest.mark.asyncio
-    async def test_skips_verification_if_done(self) -> None:
-        plug = _StreamkistePlugin()
-        plug._domain_verified = True
-        plug.base_url = "https://streamkiste.onl"
-
-        mock_client = AsyncMock()
-        plug._client = mock_client
-        await plug._verify_domain()
-
-        mock_client.head.assert_not_called()
-        assert plug.base_url == "https://streamkiste.onl"
 
 
 class TestStreamkisteCleanup:

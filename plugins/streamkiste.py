@@ -13,9 +13,8 @@ Scrapes streamkiste.onl (German streaming site, Next.js front end since
 - Category filtering (Movies/TV/Anime)
 - Bounded concurrency for detail page scraping
 
-Domains: streamkiste.onl (primary) and streamkiste.bid, which redirects there.
-The former DLE mirrors (.taxi, .tv, .sx, .al, .city) are dead or serve a parked
-page since 2026-11; the legacy DLE search form is gone with them.
+Domain: streamkiste.onl. The former mirrors (.bid, .taxi, .tv, .sx, .al, .city)
+are dead or redirect to .onl, and the legacy DLE search form is gone with them.
 No authentication required.
 """
 
@@ -35,7 +34,7 @@ from scavengarr.infrastructure.plugins.categories import (
     served_category,
     stream_category,
 )
-from scavengarr.infrastructure.plugins.dom import classes, outermost, parse_page
+from scavengarr.infrastructure.plugins.dom import parse_page
 from scavengarr.infrastructure.plugins.episodes import filter_episodes
 from scavengarr.infrastructure.plugins.httpx_base import HttpxPluginBase
 from scavengarr.infrastructure.plugins.relevance import (
@@ -47,26 +46,12 @@ from scavengarr.infrastructure.plugins.relevance import (
 # ---------------------------------------------------------------------------
 # Configurable settings
 # ---------------------------------------------------------------------------
-_DOMAINS = [
-    "streamkiste.onl",
-    # The site's old host: a 301 to .onl, so the domain check pins .onl
-    # anyway. Kept so the redirect itself is what answers when .onl's host
-    # entry breaks; it cannot rescue a broken .onl, only a moved one.
-    "streamkiste.bid",
-]
+_DOMAINS = ["streamkiste.onl"]
 _MAX_PAGES = 1  # the 2026-11 front end has one page and ignores ?page=
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-_SERIES_KEYWORDS = frozenset({"serie", "serien"})
-
-
-def _detect_series(genres: list[str]) -> bool:
-    """Detect if an item is a series based on genres."""
-    lower_genres = {g.lower() for g in genres}
-    return bool(lower_genres & _SERIES_KEYWORDS)
 
 
 def _clean_title(title: str) -> str:
@@ -77,31 +62,6 @@ def _clean_title(title: str) -> str:
             title = title[: -len(suffix)].strip()
     title = re.sub(r"\s*\(\d{4}\)\s*$", "", title)
     return title.strip()
-
-
-def _parse_release_text(text: str) -> tuple[str, list[str]]:
-    """Parse release text like '2025 - Action Komödie Krimi kinofilme'.
-
-    Returns (year, genres) where genres excludes 'kinofilme'.
-    """
-    text = text.strip()
-    year = ""
-    genres: list[str] = []
-
-    m = re.match(r"(\d{4})\s*-?\s*(.*)", text)
-    if m:
-        year = m.group(1)
-        rest = m.group(2).strip()
-    else:
-        rest = text
-
-    if rest:
-        for word in rest.split():
-            word = word.strip()
-            if word and word.lower() != "kinofilme":
-                genres.append(word)
-
-    return year, genres
 
 
 class _SearchResultParser:
@@ -135,13 +95,8 @@ class _SearchResultParser:
 
     def feed(self, html: str) -> None:
         tree = LexborHTMLParser(html)
-        cards = tree.css("div.grid a.cv")
-        if cards:
-            for card in cards:
-                self._add_cv_card(card)
-            return
-        for card in outermost(tree.css("div.movie-preview.res_item")):
-            self._add_card(card)
+        for card in tree.css("div.grid a.cv"):
+            self._add_cv_card(card)
 
     def _add_cv_card(self, card: LexborNode) -> None:
         """Add a 2026-11 ``div.grid a.cv`` result card.
@@ -198,36 +153,6 @@ class _SearchResultParser:
             }
         )
 
-    def _add_card(self, card: LexborNode) -> None:
-        title = url = ""
-        for link in card.css(":is(div, span).movie-title a"):
-            href = link.attributes.get("href") or ""
-            if href:
-                url = urljoin(self._base_url, href)
-            title = (link.attributes.get("title") or link.text()).strip()
-        if not title or not url:
-            return
-
-        releases = card.css(".movie-release")
-        year, genres = _parse_release_text(releases[-1].text() if releases else "")
-        badges = [
-            badge
-            for span in card.css("span")
-            for cls in classes(span)
-            if cls.startswith("icon-") and (badge := cls.replace("icon-", "").upper())
-        ]
-
-        self.results.append(
-            {
-                "title": _clean_title(title),
-                "url": url,
-                "genres": genres,
-                "year": year,
-                "quality": badges[0] if badges else "",
-                "is_series": _detect_series(genres),
-            }
-        )
-
 
 class _DetailPageParser:
     """Parse streamkiste detail page metadata (selectolax).
@@ -259,7 +184,7 @@ class _DetailPageParser:
 
     @property
     def is_series(self) -> bool:
-        return self._og_series or _detect_series(self.genres)
+        return self._og_series
 
     def feed(self, html: str) -> None:
         tree = LexborHTMLParser(html)
