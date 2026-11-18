@@ -6,6 +6,19 @@ All notable changes to Scavengarr are documented in this file. Format: version, 
 
 ## Unreleased (staging)
 
+### Added: Measured Bitrate in the Ranking and the Stream Line
+
+- The playback check already fetched an HLS master playlist and an MP4 file's `moov` box, so it now reads the bitrate from the same bytes: the chosen variant's `AVERAGE-BANDWIDTH` (else `BANDWIDTH`), or the file's total size over the duration its `mvhd` names. No extra request. The chosen variant is the most pixels, then the higher bitrate; a CRLF playlist and an attribute the 4 KiB read cuts are handled.
+- The rank adds one point per Mbps, capped below the smallest configured language gap and below one quality step (49 with the production scores), so it settles streams of the same quality and language without outranking either. The description shows `2.2 Mbps` before the size.
+- Tests: `test_check_playable.py`, `test_mp4_header.py`, `test_stream_sorter.py`, `test_stremio_stream_builder.py`. Docs: `stremio-addon.md`, `hoster-resolvers.md`, generated `configuration.md`.
+
+### Fixed: A Site's Link Flood No Longer Hides Another Hoster
+
+- `movie4k` returned 50 links nearly all labelled `HD` (720p), which filled `stremio.max_probe_count` (40) and pushed hdfilme's unlabelled but measured 1080p dropload link to 47th, so it was never probed and a cached reload showed only 720p. `stremio.max_links_per_hoster` (default 2) now keeps each hoster and language's best links before the window fills; links the registry already knows work (cached alive, or resolved before a better-labelled newcomer) are exempt from the cap and the top truncation.
+- The resolver's name is now the stream's hoster: `rb.gy` and `bit.ly` links that redirect to one voe upload no longer answer as three hosters. The measured answer keeps one resolved direct video per hoster, language and episode, and an echo or a wrong-season result cannot remove the hoster's real stream.
+- A resolved MP4 below `stremio.min_stream_size_mb` (default 20, `0` off) is a stub (bigwarp served a 1 MB `player/321b.mp4` for a feature film) and is dropped and cached dead without counting against the resolver's circuit breaker. HLS has no size and is unaffected.
+- Tests: probe-window cap/exemptions, redirect hosters, deduplication, stub floor, CRLF and cut playlists. Docs: `stremio-addon.md`, `hoster-resolvers.md`, regenerated `configuration.md`.
+
 ### Added: Tests Guard the Rate Limiter's Domain Grouping and Wiring
 
 - A regression in the rate limiter's domain grouping or in its wiring passed the tests. `test_adaptive_rate_limiter.py` now throttles one URL and expects `www.example.com` and `example.org` to slow down with it (one bucket per domain name), and `test_http_client_wiring.py` builds the shared HTTP client from a config and checks that the adaptive switch and the min and max rps reach the limiter. No behaviour changed.
