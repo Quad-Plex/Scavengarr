@@ -435,6 +435,16 @@ class StremioConfig(BaseModel):
             "the stream; a timeout or network error keeps it."
         ),
     )
+    min_stream_size_mb: int = Field(
+        default=20,
+        ge=0,
+        description=(
+            "A resolved MP4 file smaller than this is dropped as a stub (an ad "
+            "or a placeholder, not the film): the playback check measured its "
+            "size. HLS streams have no size to check, and 0 turns the floor "
+            "off."
+        ),
+    )
     probe_concurrency: int = Field(
         default=10,
         description="Max parallel hoster resolutions at stream time.",

@@ -345,6 +345,24 @@ class TestMeasuredQuality:
 
         assert [s.name for s in streams] == ["Scavengarr\n1080p"]
 
+    async def test_two_labels_that_resolve_to_one_hoster_are_one_stream(self) -> None:
+        """A shortener whose redirect lands on voe is voe, so it does not
+        answer beside the real voe stream (2026-11-18)."""
+
+        async def _resolve(url: str, hoster: str = "") -> ResolvedStream:
+            return replace(resolved(url), hoster="voe")
+
+        links = [
+            {"url": "https://rb.gy/one", "hoster": "rb", "release": self._PLAIN},
+            {"url": "https://voe.sx/e/voe1", "hoster": "voe", "release": self._PLAIN},
+        ]
+        uc = resolving_use_case(links, _resolve)
+
+        result = await uc.execute(make_request(), base_url="http://localhost:8080")
+
+        assert len(result) == 1
+        assert "VOE" in result[0].description
+
 
 class TestWorkerThreads:
     """The stream conversion runs in a worker thread; its log lines keep the

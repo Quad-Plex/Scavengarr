@@ -41,8 +41,9 @@ def test_every_setting_has_a_row() -> None:
     # The section and top-level keys the model has; four fewer since the
     # unread stremio settings went (2026-10-10), two more with the watchdog,
     # one more with the file proxy's stall timeout, one more with the probe
-    # window's per-hoster link cap (2026-11-17)
-    assert len(names) == 82
+    # window's per-hoster link cap (2026-11-17), one more with the stub-file
+    # floor (2026-11-18)
+    assert len(names) == 83
     assert "SCAVENGARR_WATCHDOG_STALL_SECONDS" in names
 
 

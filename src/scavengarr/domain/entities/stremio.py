@@ -322,6 +322,9 @@ class ResolvedStream:
     # The stream's bitrate in bits per second, measured by the playback
     # check (an HLS master's variant, or an MP4's size over its duration)
     bitrate_bps: int | None = None
+    # The hoster the resolution ended at (the resolver's canonical name):
+    # a shortener that redirects to voe is voe, whatever the site labelled it
+    hoster: str = ""
 
 
 @dataclass(frozen=True)

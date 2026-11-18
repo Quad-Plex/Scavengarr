@@ -172,11 +172,13 @@ def apply_resolution(ranked: RankedStream, resolved: ResolvedStream) -> RankedSt
     if not size and resolved.size_bytes:
         size = format_size(resolved.size_bytes)
     bitrate = resolved.bitrate_bps or ranked.bitrate_bps
+    hoster = resolved.hoster or ranked.hoster
     if (
         quality is ranked.quality
         and guessed is ranked.quality_guessed
         and size == ranked.size
         and bitrate == ranked.bitrate_bps
+        and hoster == ranked.hoster
     ):
         return ranked
     return replace(
@@ -185,6 +187,7 @@ def apply_resolution(ranked: RankedStream, resolved: ResolvedStream) -> RankedSt
         quality_guessed=guessed,
         size=size,
         bitrate_bps=bitrate,
+        hoster=hoster,
     )
 
 

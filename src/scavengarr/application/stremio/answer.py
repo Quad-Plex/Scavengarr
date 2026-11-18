@@ -19,6 +19,7 @@ from scavengarr.application.stremio.stream_builder import (
     apply_resolution,
     build_cache_link,
     build_stream_from_resolved,
+    hoster_key,
     stream_link_id,
 )
 from scavengarr.domain.entities.stremio import (
@@ -92,27 +93,59 @@ def with_measurements(
     *,
     rank_score: Callable[[RankedStream], int],
 ) -> tuple[list[RankedStream], dict[int, ResolvedStream]]:
-    """The streams with what their resolutions measured (quality, size;
-    ``apply_resolution``) and the resolutions by index.
+    """The streams with what their resolutions measured (quality, size,
+    bitrate, the hoster the link ended at; ``apply_resolution``) and the
+    resolutions by index.
 
-    A changed quality changes the rank: the streams are sorted again
-    (stable, like the sorter), the resolutions follow their streams.
+    A changed quality, bitrate or hoster changes the rank: the streams are
+    sorted again (stable, like the sorter), the resolutions follow their
+    streams. Two labels that resolve to the same hoster (a shortener that
+    lands on voe) are then one stream, the better-ranked.
     """
     merged = [
         apply_resolution(s, resolved[i]) if i in resolved else s
         for i, s in enumerate(ranked)
     ]
-    if all(
-        m.quality is s.quality and m.bitrate_bps == s.bitrate_bps
+    changed = any(
+        m.quality is not s.quality
+        or m.bitrate_bps != s.bitrate_bps
+        or m.hoster != s.hoster
         for m, s in zip(merged, ranked, strict=True)
-    ):
-        return merged, resolved
-    scores = [rank_score(s) for s in merged]
-    order = sorted(range(len(merged)), key=scores.__getitem__, reverse=True)
-    return (
-        [replace(merged[old], rank_score=scores[old]) for old in order],
-        {new: resolved[old] for new, old in enumerate(order) if old in resolved},
     )
+    if changed:
+        scores = [rank_score(s) for s in merged]
+        order = sorted(range(len(merged)), key=scores.__getitem__, reverse=True)
+        merged = [replace(merged[old], rank_score=scores[old]) for old in order]
+        resolved = {
+            new: resolved[old] for new, old in enumerate(order) if old in resolved
+        }
+    return _deduplicate(merged, resolved)
+
+
+def _deduplicate(
+    ranked: list[RankedStream], resolved: dict[int, ResolvedStream]
+) -> tuple[list[RankedStream], dict[int, ResolvedStream]]:
+    """*ranked* with one resolved stream per hoster and language (the first,
+    best), and the resolutions by their new index.
+
+    Only resolved streams are deduplicated: an unresolved link is no stream
+    of its hoster (``cache_and_proxy`` drops it), and the hoster's next link
+    may be the one that resolved. The input must already be sorted by rank.
+    Streams without a hoster name are always kept (no dedup key).
+    """
+    kept: list[RankedStream] = []
+    resolutions: dict[int, ResolvedStream] = {}
+    seen: set[tuple[str, str]] = set()
+    for old, stream in enumerate(ranked):
+        key = hoster_key(stream)
+        if key is not None and old in resolved:
+            if key in seen:
+                continue
+            seen.add(key)
+        if old in resolved:
+            resolutions[len(kept)] = resolved[old]
+        kept.append(stream)
+    return kept, resolutions
 
 
 async def cache_and_proxy(
