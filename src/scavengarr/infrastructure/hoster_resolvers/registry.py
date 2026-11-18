@@ -87,12 +87,14 @@ def _is_playlist_url(url: str) -> bool:
 
 def _measured(stream: ResolvedStream, check: PlaybackCheck) -> ResolvedStream:
     """*stream* with what its playback check read: the resolution's quality
-    when the resolver named none or a lower one, and the file's size."""
+    when the resolver named none or a lower one, the file's size and the
+    stream's bitrate."""
     measured = quality_from_resolution(check.width, check.height)
     return replace(
         stream,
         quality=max(stream.quality, measured),
         size_bytes=check.size_bytes or stream.size_bytes,
+        bitrate_bps=check.bitrate_bps or stream.bitrate_bps,
     )
 
 

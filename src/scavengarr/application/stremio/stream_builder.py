@@ -91,7 +91,7 @@ def format_stream(
     quality, like other addons) and ``description`` beside it, one short
     line per fact, since long lines are cut off: the site's own title
     (release name, else title, else the reference title with the year;
-    titles get the episode for series), then language and size, then
+    titles get the episode for series), then language, bitrate and size, then
     hoster and source site. The site's title shows a wrong match that the
     reference title would hide.
 
@@ -122,6 +122,8 @@ def format_stream(
         elif year and not ranked.title:
             title = f"{title} ({year})"
     details = [ranked.language.label] if ranked.language else []
+    if ranked.bitrate_bps:
+        details.append(f"{ranked.bitrate_bps / 1_000_000:.1f} Mbps")
     if ranked.size:
         details.append(ranked.size)
     source = [part for part in (ranked.hoster.upper(), ranked.source_plugin) if part]
@@ -158,7 +160,8 @@ def apply_resolution(ranked: RankedStream, resolved: ResolvedStream) -> RankedSt
 
     A measured quality replaces the site's badge, a guessed one too: sites
     label a release once, a hoster may serve another copy. A measured size
-    shows only where the site gave none.
+    shows only where the site gave none; a measured bitrate replaces what
+    the stream had.
     """
     quality = ranked.quality
     guessed = ranked.quality_guessed
@@ -168,13 +171,21 @@ def apply_resolution(ranked: RankedStream, resolved: ResolvedStream) -> RankedSt
     size = ranked.size
     if not size and resolved.size_bytes:
         size = format_size(resolved.size_bytes)
+    bitrate = resolved.bitrate_bps or ranked.bitrate_bps
     if (
         quality is ranked.quality
         and guessed is ranked.quality_guessed
         and size == ranked.size
+        and bitrate == ranked.bitrate_bps
     ):
         return ranked
-    return replace(ranked, quality=quality, quality_guessed=guessed, size=size)
+    return replace(
+        ranked,
+        quality=quality,
+        quality_guessed=guessed,
+        size=size,
+        bitrate_bps=bitrate,
+    )
 
 
 def hoster_key(stream: RankedStream) -> tuple[str, str] | None:

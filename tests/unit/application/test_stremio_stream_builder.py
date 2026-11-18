@@ -149,6 +149,25 @@ class TestFormatStream:
         )
         assert format_stream(ranked).description == "Iron Man\n700 MB\nVOE"
 
+    def test_bitrate_before_size(self) -> None:
+        ranked = RankedStream(
+            url="https://voe.sx/e/abc",
+            hoster="voe",
+            size="700 MB",
+            title="Iron Man",
+            bitrate_bps=2_244_933,
+        )
+        assert format_stream(ranked).description == "Iron Man\n2.2 Mbps · 700 MB\nVOE"
+
+    def test_a_bitrate_without_language(self) -> None:
+        ranked = RankedStream(
+            url="https://dropload.io/e/abc",
+            hoster="dropload",
+            title="Iron Man",
+            bitrate_bps=8_000_000,
+        )
+        assert format_stream(ranked).description == "Iron Man\n8.0 Mbps\nDROPLOAD"
+
     def test_without_hoster(self) -> None:
         ranked = RankedStream(
             url="https://example.com/v", hoster="", title="Iron Man", source_plugin="x"
@@ -856,3 +875,16 @@ class TestMeasurements:
         resolved = ResolvedStream(self._VIDEO, size_bytes=1_400_000_000)
 
         assert apply_resolution(ranked, resolved).size == "1.5 GB"
+
+    def test_a_measured_bitrate_replaces_nothing_it_has(self) -> None:
+        ranked = replace(self._RANKED, bitrate_bps=8_000_000)
+        resolved = ResolvedStream(self._VIDEO, bitrate_bps=2_244_933)
+
+        assert apply_resolution(ranked, resolved).bitrate_bps == 2_244_933
+
+    def test_a_bitrate_stays_without_a_measurement(self) -> None:
+        ranked = replace(self._RANKED, bitrate_bps=8_000_000)
+
+        assert apply_resolution(ranked, ResolvedStream(self._VIDEO)).bitrate_bps == (
+            8_000_000
+        )

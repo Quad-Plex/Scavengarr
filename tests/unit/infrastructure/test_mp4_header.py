@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import struct
 
-from scavengarr.infrastructure.hoster_resolvers._mp4 import moov_offset, video_size
+from scavengarr.infrastructure.hoster_resolvers._mp4 import (
+    moov_offset,
+    movie_duration,
+    video_size,
+)
 
-from .mp4_support import FTYP, box, mdat_header, moov, tkhd, trak
+from .mp4_support import FTYP, box, mdat_header, moov, mvhd, tkhd, trak
 
 
 class TestVideoSize:
@@ -73,6 +77,35 @@ class TestVideoSize:
         assert video_size(b"\x1aE\xdf\xa3" + bytes(60)) is None
         assert video_size(b"") is None
         assert video_size(b"\x00\x00\x00\x02moov") is None
+
+
+class TestMovieDuration:
+    def test_a_fast_start_file_names_its_duration(self) -> None:
+        head = FTYP + moov(trak(1920, 800), duration_s=141.0) + mdat_header(10**9)
+        assert movie_duration(head) == 141.0
+
+    def test_version_1_movie_header(self) -> None:
+        head = FTYP + box(b"moov", mvhd(600.0, version=1))
+        assert movie_duration(head) == 600.0
+
+    def test_a_movie_header_without_a_duration_names_none(self) -> None:
+        assert movie_duration(FTYP + moov(trak(1920, 1080))) is None
+
+    def test_a_moov_without_a_movie_header_names_none(self) -> None:
+        head = FTYP + box(b"moov", trak(1920, 1080))
+        assert movie_duration(head) is None
+
+    def test_media_data_first_names_none(self) -> None:
+        assert movie_duration(FTYP + mdat_header(10**9) + bytes(64)) is None
+
+    def test_a_cut_duration_names_none(self) -> None:
+        head = FTYP + moov(trak(1920, 1080), duration_s=141.0)
+        cut = head.index(b"mvhd") + 20
+        assert movie_duration(head[:cut]) is None
+
+    def test_other_bytes_name_none(self) -> None:
+        assert movie_duration(b"") is None
+        assert movie_duration(b"\x1aE\xdf\xa3" + bytes(60)) is None
 
 
 class TestMoovOffset:

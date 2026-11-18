@@ -26,12 +26,14 @@ def _stream(
     hoster: str = "generic",
     quality: StreamQuality = StreamQuality.UNKNOWN,
     language: StreamLanguage | None = None,
+    bitrate_bps: int | None = None,
 ) -> RankedStream:
     return RankedStream(
         url=f"https://example.com/{hoster}",
         hoster=hoster,
         quality=quality,
         language=language,
+        bitrate_bps=bitrate_bps,
     )
 
 
@@ -217,6 +219,42 @@ class TestCustomConfig:
         ]
         assert result[0].language == GERMAN_DUB
         assert result[1].language == ENGLISH_DUB
+
+    def test_the_higher_bitrate_wins_same_quality_and_language(self) -> None:
+        sorter = StreamSorter(StremioConfig(quality_multiplier=1000))
+        fast = _stream(
+            quality=StreamQuality.HD_1080P,
+            language=GERMAN_DUB,
+            bitrate_bps=8_000_000,
+        )
+        slow = _stream(
+            quality=StreamQuality.HD_1080P,
+            language=GERMAN_DUB,
+            bitrate_bps=2_000_000,
+        )
+
+        result = sorter.sort([slow, fast])
+
+        assert result[0].bitrate_bps == 8_000_000
+        assert result[0].rank_score == 51_008
+
+    def test_a_bitrate_does_not_outrank_a_better_language(self) -> None:
+        """One Mbps is one point, capped below the 500-point de/de-sub gap."""
+        sorter = StreamSorter(StremioConfig(quality_multiplier=1000))
+        de_720 = _stream(
+            quality=StreamQuality.HD_720P,
+            language=GERMAN_DUB,
+            bitrate_bps=2_000_000,
+        )
+        en_720 = _stream(
+            quality=StreamQuality.HD_720P,
+            language=ENGLISH_DUB,
+            bitrate_bps=100_000_000,
+        )
+
+        result = sorter.sort([en_720, de_720])
+
+        assert result[0].language == GERMAN_DUB
 
 
 def test_sort_keeps_every_field() -> None:

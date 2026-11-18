@@ -2529,6 +2529,7 @@ class TestStateExport:
         is_hls=True,
         quality=StreamQuality.HD_1080P,
         size_bytes=1_500_000_000,
+        bitrate_bps=5_000_000,
     )
 
     async def test_alive_and_dead_entries_round_trip(self) -> None:

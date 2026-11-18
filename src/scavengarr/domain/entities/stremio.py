@@ -89,6 +89,9 @@ class RankedStream:
     link_label: str = ""
     label_season: int | None = None
     label_episode: int | None = None
+    # The measured video bitrate (bits per second), from the playback check.
+    # It breaks a quality and language tie.
+    bitrate_bps: int | None = None
 
 
 @dataclass(frozen=True)
@@ -316,6 +319,9 @@ class ResolvedStream:
     # The CDN resets a connection that stops reading (the resolver's
     # ``idle_reset``): the file goes through Scavengarr, which resumes it
     idle_reset: bool = False
+    # The stream's bitrate in bits per second, measured by the playback
+    # check (an HLS master's variant, or an MP4's size over its duration)
+    bitrate_bps: int | None = None
 
 
 @dataclass(frozen=True)

@@ -11,15 +11,28 @@ from dataclasses import replace
 from scavengarr.domain.entities.stremio import RankedStream
 from scavengarr.infrastructure.config.schema import StremioConfig
 
+# The most points a stream's bitrate adds: one per Mbps, capped below the
+# smallest language gap (1000 - 500 for de/de-sub), so a high bitrate never
+# outranks a better language of the same quality
+_MAX_BITRATE_POINTS = 99
+
 
 class StreamSorter:
-    """Ranking: Language (German first) + Quality (best first).
+    """Ranking: Quality (best first), then Language (German first), then the
+    measured bitrate, then the hoster bonus.
 
     All weights come from StremioConfig — no hardcoded values.
-    Score formula: language_score + (quality.value * quality_multiplier) + hoster_bonus
+    Score formula: language_score + (quality.value * quality_multiplier)
+    + bitrate_points + hoster_bonus
 
-    With default config: German Dub 720p (1000+400+0=1400) ranks higher than
-    English Sub 1080p (200+500+0=700). Language dominates over quality.
+    ``quality_multiplier`` decides whether quality or language dominates: at
+    the deployment's 1000 one quality step is 10,000, above the widest
+    language gap (1000 - 100), so every 1080p stream outranks every 720p one
+    and language breaks the tie within a class (2026-11-17). The bitrate
+    adds at most 99 points per Mbps, so it cannot outrank language, and it
+    settles streams of the same quality and language. With the defaults
+    (multiplier 10) language dominates over quality: German Dub 720p
+    (1000+400=1400) ranks higher than English Sub 1080p (200+500=700).
     """
 
     def __init__(self, config: StremioConfig) -> None:
@@ -38,8 +51,11 @@ class StreamSorter:
             else self._default_language_score
         )
         quality_score = stream.quality.value * self._quality_multiplier
+        bitrate_score = min(
+            (stream.bitrate_bps or 0) // 1_000_000, _MAX_BITRATE_POINTS
+        )
         hoster_bonus = self._hoster_scores.get(stream.hoster.lower(), 0)
-        return lang_score + quality_score + hoster_bonus
+        return lang_score + quality_score + bitrate_score + hoster_bonus
 
     def sort(self, streams: list[RankedStream]) -> list[RankedStream]:
         """Sort streams descending by score. Returns new list with rank_score set."""

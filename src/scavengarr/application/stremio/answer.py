@@ -102,7 +102,10 @@ def with_measurements(
         apply_resolution(s, resolved[i]) if i in resolved else s
         for i, s in enumerate(ranked)
     ]
-    if all(m.quality is s.quality for m, s in zip(merged, ranked, strict=True)):
+    if all(
+        m.quality is s.quality and m.bitrate_bps == s.bitrate_bps
+        for m, s in zip(merged, ranked, strict=True)
+    ):
         return merged, resolved
     scores = [rank_score(s) for s in merged]
     order = sorted(range(len(merged)), key=scores.__getitem__, reverse=True)
