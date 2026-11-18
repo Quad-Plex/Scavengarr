@@ -22,6 +22,7 @@ import structlog
 
 from scavengarr.application.stremio.search_progress import SearchProgress
 from scavengarr.application.stremio.stream_builder import (
+    cap_links_per_hoster,
     hoster_key,
     is_direct_video_url,
 )
@@ -207,6 +208,7 @@ class ResolveConfig(Protocol):
     """The answer rule's limits."""
 
     max_probe_count: int
+    max_links_per_hoster: int
     probe_concurrency: int
     resolve_target_count: int
     stream_deadline_seconds: float
@@ -238,6 +240,7 @@ class ResolveFlow:
         self._cached_resolution_fn = cached_resolution_fn
         self._telemetry = telemetry
         self._max_probe_count = config.max_probe_count
+        self._max_links_per_hoster = config.max_links_per_hoster
         self._probe_concurrency = config.probe_concurrency
         self._resolve_target = config.resolve_target_count
         self._deadline_s = config.stream_deadline_seconds
@@ -276,6 +279,7 @@ class ResolveFlow:
         cached_fn = self._cached_resolution_fn
         if from_cache and cached_fn is not None:
             ranked = await self._rank(progress.results, plugin_languages)
+            ranked = cap_links_per_hoster(ranked, self._max_links_per_hoster)
             ranked = ranked[: self._max_probe_count]
             cached = self._cached_resolutions(ranked, cached_fn)
             if any(is_direct_video_url(r, ranked[i].url) for i, r in cached.items()):
@@ -441,6 +445,12 @@ class ResolveFlow:
                                 await self._rank(new, plugin_languages),
                                 key=lambda s: -s.rank_score,
                             )
+                        )
+                        # A site that lists dozens of links for the same hosters
+                        # must not fill the probe window with them (see
+                        # ``cap_links_per_hoster``)
+                        ranked = cap_links_per_hoster(
+                            ranked, self._max_links_per_hoster
                         )
                         resolution.update(ranked)
                         continue

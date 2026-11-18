@@ -206,6 +206,35 @@ def deduplicate_by_hoster(streams: list[RankedStream]) -> list[RankedStream]:
     return result
 
 
+def cap_links_per_hoster(
+    streams: list[RankedStream], per_hoster: int
+) -> list[RankedStream]:
+    """Keep each hoster and language's best *per_hoster* streams, best first.
+
+    The input must already be sorted by rank (best first). A site that lists
+    dozens of links for the same hosters would otherwise fill the probe
+    window with its own links and push out another site's link of the same
+    title: a site whose unlabelled 1080p stream ranks below a flood of
+    ``HD`` (720p) guesses never resolved, so the answer showed only 720p
+    (2026-11-17, Harry Potter). The capped list stays in rank order, so the
+    probe window holds each hoster's best links and the other hosters' too.
+    ``per_hoster <= 0`` keeps every stream; streams without hoster name are
+    always kept (no cap key).
+    """
+    if per_hoster <= 0:
+        return list(streams)
+    counts: dict[tuple[str, str], int] = {}
+    result: list[RankedStream] = []
+    for s in streams:
+        key = hoster_key(s)
+        if key is None:
+            result.append(s)
+        elif counts.get(key, 0) < per_hoster:
+            counts[key] = counts.get(key, 0) + 1
+            result.append(s)
+    return result
+
+
 # Video file extensions that Stremio can play directly.
 _VIDEO_EXTENSIONS = frozenset(
     {

@@ -469,6 +469,49 @@ class TestBackgroundResolutions:
         assert claim.kind == "background"
 
 
+class TestProbeWindow:
+    """A site listing dozens of links for the same hosters must not fill the
+    probe window: hdfilme's unlabelled 1080p dropload link ranked 47th behind
+    movie4k's 720p guesses, so a cached answer dropped it and only 720p
+    remained (2026-11-17, Harry Potter)."""
+
+    _FLOOD = 40
+    _FLOOD_URLS = tuple(f"https://voe.sx/e/{i}" for i in range(_FLOOD))
+    _LATE = "https://dr0pstream.com/e/1080"
+
+    def _use_case(self, resolutions: Resolutions) -> StremioStreamUseCase:
+        links = [
+            hoster_link(url, release="Iron.Man.2008.German.720p.WEB")
+            for url in self._FLOOD_URLS
+        ]
+        # No release name: no quality label, so it ranks below the flood
+        links.append(hoster_link(self._LATE, release=""))
+        return cached_titles(
+            {"tt1234567": links},
+            resolutions,
+            max_probe_count=10,
+            max_links_per_hoster=2,
+            resolve_target_count=0,
+        )
+
+    async def test_a_fresh_search_resolves_the_other_hosters_link(self) -> None:
+        resolutions = Resolutions()
+        uc = self._use_case(resolutions)
+
+        await uc.execute(make_request(), base_url="http://localhost:8080")
+
+        assert self._LATE in resolutions.calls
+
+    async def test_a_cached_answer_finds_the_other_hosters_resolution(self) -> None:
+        resolutions = Resolutions(dead=self._FLOOD_URLS, alive=(self._LATE,))
+        uc = self._use_case(resolutions)
+
+        streams = await uc.execute(make_request(), base_url="http://localhost:8080")
+
+        assert [video(uc, s) for s in streams] == ["https://cdn.example/1080.mp4"]
+        assert resolutions.calls == []
+
+
 def _of(plugin: str, link: str) -> SearchResult:
     result = hit(link)
     result.metadata["source_plugin"] = plugin

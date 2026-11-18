@@ -443,6 +443,17 @@ class StremioConfig(BaseModel):
         default=50,
         description="Max streams to resolve at stream time (top-ranked first).",
     )
+    max_links_per_hoster: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Max links per hoster and language in the probe window. A site "
+            "that lists dozens of links for the same hosters would otherwise "
+            "fill max_probe_count with them and push out another site's link "
+            "(a 1080p stream without a quality label ranks below a flood of "
+            "720p guesses). 0 keeps every link."
+        ),
+    )
     probe_stealth_timeout_seconds: float = Field(
         default=15.0,
         description=(

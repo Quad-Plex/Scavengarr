@@ -165,6 +165,7 @@ Unprefixed `CACHE_*` variables are not read.
 | `SCAVENGARR_STREMIO_MAX_CONCURRENT_PLAYWRIGHT` | int | `5` | Upper bound for parallel Playwright plugin searches on the shared browser. The actual concurrency is dynamically capped at min(pw_plugin_count, this value) per request. |
 | `SCAVENGARR_STREMIO_MAX_CONCURRENT_PLUGINS` | int | `5` | Max parallel plugin searches for stream resolution. |
 | `SCAVENGARR_STREMIO_MAX_CONCURRENT_PLUGINS_AUTO` | bool | `true` | Auto-tune max_concurrent_plugins based on host CPU and memory. When enabled, overrides max_concurrent_plugins at startup. |
+| `SCAVENGARR_STREMIO_MAX_LINKS_PER_HOSTER` | int | `2` | Max links per hoster and language in the probe window. A site that lists dozens of links for the same hosters would otherwise fill max_probe_count with them and push out another site's link (a 1080p stream without a quality label ranks below a flood of 720p guesses). 0 keeps every link. |
 | `SCAVENGARR_STREMIO_MAX_PLUGINS_SCORED` | int | `5` | Top-N plugins when scoring is active. |
 | `SCAVENGARR_STREMIO_MAX_PROBE_COUNT` | int | `50` | Max streams to resolve at stream time (top-ranked first). |
 | `SCAVENGARR_STREMIO_MAX_RESULTS_PER_PLUGIN` | int | `100` | Max results per plugin in Stremio search. Limits pagination to reduce response time. Torznab uses the plugin default (1000). |

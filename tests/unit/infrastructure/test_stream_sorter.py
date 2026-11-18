@@ -197,6 +197,27 @@ class TestCustomConfig:
         # 100 (default lang) + 0 (quality) + 100 (hoster) = 200
         assert sorter.rank(stream) == 200
 
+    def test_quality_multiplier_1000_puts_every_1080p_before_every_720p(self) -> None:
+        """`data/config.local.yaml`: quality first, language breaks the tie.
+
+        A 1000 multiplier makes one quality step 10,000, more than the widest
+        language gap (1000 - 100), so a German dub 720p ranks below even an
+        English 1080p (2026-11-17)."""
+        sorter = StreamSorter(StremioConfig(quality_multiplier=1000))
+        de_720 = _stream(quality=StreamQuality.HD_720P, language=GERMAN_DUB)
+        en_1080 = _stream(quality=StreamQuality.HD_1080P, language=ENGLISH_DUB)
+        de_1080 = _stream(quality=StreamQuality.HD_1080P, language=GERMAN_DUB)
+
+        result = sorter.sort([de_720, en_1080, de_1080])
+
+        assert [s.quality for s in result] == [
+            StreamQuality.HD_1080P,
+            StreamQuality.HD_1080P,
+            StreamQuality.HD_720P,
+        ]
+        assert result[0].language == GERMAN_DUB
+        assert result[1].language == ENGLISH_DUB
+
 
 def test_sort_keeps_every_field() -> None:
     """sort() only sets rank_score; the title (stream name fallback) stays."""

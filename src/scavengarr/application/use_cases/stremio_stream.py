@@ -89,6 +89,7 @@ class _StremioConfig(TitleMatchConfig, PluginSelectionConfig, ResolveConfig, Pro
     plugin_timeout_seconds: float
     answer_budget_seconds: float | None
     max_results_per_plugin: int
+    max_links_per_hoster: int
 
 
 class _StreamSorter(Protocol):
