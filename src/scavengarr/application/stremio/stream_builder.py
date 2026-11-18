@@ -225,8 +225,10 @@ def cap_links_per_hoster(
     per_hoster: int,
     *,
     exempt: frozenset[str] = frozenset(),
+    dead: frozenset[str] = frozenset(),
 ) -> list[RankedStream]:
-    """Keep each hoster and language's best *per_hoster* streams, best first.
+    """Keep each hoster and language's best *per_hoster* live streams, best
+    first.
 
     The input must already be sorted by rank (best first). A site that lists
     dozens of links for the same hosters would otherwise fill the probe
@@ -238,15 +240,19 @@ def cap_links_per_hoster(
 
     *exempt* URLs are always kept and do not count against their hoster: a
     link whose stream already resolved (or is cached alive) must not be
-    dropped by a better-labelled newcomer (code review, 2026-11-18).
-    ``per_hoster <= 0`` keeps every stream; streams without hoster name are
-    always kept (no cap key).
+    dropped by a better-labelled newcomer. *dead* URLs are left out and do
+    not count either: a hoster whose first two links are known dead still
+    reaches its next one (code review, 2026-11-18). ``per_hoster <= 0``
+    keeps every stream; streams without hoster name are always kept (no cap
+    key).
     """
     if per_hoster <= 0:
-        return list(streams)
+        return [s for s in streams if s.url not in dead]
     counts: dict[tuple[str, str], int] = {}
     result: list[RankedStream] = []
     for s in streams:
+        if s.url in dead:
+            continue
         key = hoster_key(s)
         if key is None or s.url in exempt:
             result.append(s)

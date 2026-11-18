@@ -1,8 +1,8 @@
 """The streams of a Stremio answer: ranked, measured, served by Scavengarr.
 
 The search results convert into streams in a worker thread (CPU work) and
-the sorter ranks them; what a resolution measured (quality, size) can
-change a stream's rank. Streams Scavengarr serves point at ``/play/`` or
+the sorter ranks them; what a resolution measured (quality, size, bitrate, hoster)
+can change a stream's rank. Streams Scavengarr serves point at ``/play/`` or
 the HLS proxy, and their links are saved for those to look up.
 """
 

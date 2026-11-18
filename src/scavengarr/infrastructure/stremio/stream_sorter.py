@@ -13,7 +13,8 @@ from scavengarr.infrastructure.config.schema import StremioConfig
 
 
 class StreamSorter:
-    """Ranking: Quality (best first), then Language (German first), then the
+    """Ranking: language and quality by their weights (quality first at the
+    deployed multiplier of 1000, language first at the default 10), then the
     measured bitrate, then the hoster bonus.
 
     Score formula: language_score + (quality.value * quality_multiplier)
@@ -38,15 +39,16 @@ class StreamSorter:
         self._hoster_scores = config.hoster_scores
         # One point per Mbps, but never enough to outrank a better language
         # (the smallest gap between two language scores) or a better quality
-        # (one quality step). With the deployed scores that is 49 points.
+        # (one quality step), even with the largest hoster bonus on the
+        # better side. With the deployed scores that is 44 points.
         languages = sorted(
             {*config.language_scores.values(), config.default_language_score}
         )
         gaps = [b - a for a, b in zip(languages, languages[1:])]
-        margin = min(gaps, default=10 * config.quality_multiplier)
-        self._max_bitrate_points = max(
-            0, min(margin, 10 * config.quality_multiplier) - 1
-        )
+        quality_margin = 10 * config.quality_multiplier
+        bonus = max(config.hoster_scores.values(), default=0)
+        margin = min(gaps, default=quality_margin) - bonus
+        self._max_bitrate_points = max(0, min(margin, quality_margin - bonus) - 1)
 
     def rank(self, stream: RankedStream) -> int:
         """Calculate ranking score for a single stream."""

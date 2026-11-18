@@ -1,10 +1,10 @@
 ## 1. Tests first
 
 - [x] 1.1 Probe window: a hoster's third link is dropped by the cap; a cached-live third link and a stream that resolved before a better-labelled newcomer arrive stay in the answer.
-- [x] 1.2 Bitrate: HLS `AVERAGE-BANDWIDTH`/`BANDWIDTH` (attribute order, quoted `CODECS`, CRLF, a cut last line, I-frame variants) and MP4 `mvhd` v0/v1 (hooks, sentinels, timescale 0).
+- [x] 1.2 Bitrate: HLS `AVERAGE-BANDWIDTH`/`BANDWIDTH` (attribute order, quoted `CODECS`, CRLF, a cut last line, I-frame variants) and MP4 `mvhd` v0/v1 (sentinels, timescale 0, unknown version).
 - [x] 1.3 Ranking: higher bitrate wins the same quality and language; it never outranks a different language, including the tightest configured gap, nor a better quality.
-- [x] 1.4 Redirects and dedup: a redirect-followed resolver names the hoster; one resolved video per hoster, language and episode; an echo or a wrong-season result does not suppress the real stream.
-- [x] 1.5 Stub floor: below the floor dropped and cached dead, at the floor kept, `0` off, unknown size kept, HLS untouched, the `too_small` outcome does not count as a breaker failure.
+- [x] 1.4 Redirects and dedup: a redirect-followed resolver names the hoster; one resolved video per hoster, language and episode; an echo or a wrong-season result does not suppress the real stream; a suffix-less playlist body is not a stub.
+- [x] 1.5 Stub floor: below the floor dropped and cached dead, at the floor kept, `0` off, unknown size kept, a playlist body untouched, the `too_small` outcome does not count as a breaker failure; a hoster's third link replaces two dead ones.
 
 ## 2. Implementation
 

@@ -273,7 +273,47 @@ class TestCustomConfig:
         result = sorter.sort([dub, sub])
 
         assert result[0].language == ENGLISH_SUB
-        assert sorter._max_bitrate_points == 49
+        assert sorter._max_bitrate_points == 44
+
+    def test_a_bitrate_does_not_outrank_a_language_plus_hoster_bonus(self) -> None:
+        """The largest hoster bonus is part of the margin too."""
+        sorter = StreamSorter(StremioConfig(quality_multiplier=1000))
+        sub = _stream(
+            quality=StreamQuality.HD_1080P,
+            language=ENGLISH_SUB,
+            bitrate_bps=900_000,
+        )
+        dub = _stream(
+            hoster="supervideo",
+            quality=StreamQuality.HD_1080P,
+            language=ENGLISH_DUB,
+            bitrate_bps=60_000_000,
+        )
+
+        result = sorter.sort([dub, sub])
+
+        assert result[0].language == ENGLISH_SUB
+
+    def test_a_bitrate_does_not_outrank_a_quality_step_plus_a_hoster_bonus(
+        self,
+    ) -> None:
+        sorter = StreamSorter(StremioConfig(quality_multiplier=1))
+        hd = _stream(
+            quality=StreamQuality.HD_1080P,
+            language=GERMAN_DUB,
+            bitrate_bps=900_000,
+        )
+        sd = _stream(
+            hoster="supervideo",
+            quality=StreamQuality.HD_720P,
+            language=GERMAN_DUB,
+            bitrate_bps=100_000_000,
+        )
+
+        result = sorter.sort([sd, hd])
+
+        assert result[0].quality == StreamQuality.HD_1080P
+        assert sorter._max_bitrate_points == 4
 
 
 def test_sort_keeps_every_field() -> None:

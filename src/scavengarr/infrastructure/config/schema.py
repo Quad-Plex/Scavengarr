@@ -439,10 +439,10 @@ class StremioConfig(BaseModel):
         default=20,
         ge=0,
         description=(
-            "A resolved MP4 file smaller than this is dropped as a stub (an ad "
+            "A resolved file smaller than this is dropped as a stub (an ad "
             "or a placeholder, not the film): the playback check measured its "
-            "size. HLS streams have no size to check, and 0 turns the floor "
-            "off."
+            "size. A playlist has no size, the content-type probe is not "
+            "checked, and 0 turns the floor off."
         ),
     )
     probe_concurrency: int = Field(

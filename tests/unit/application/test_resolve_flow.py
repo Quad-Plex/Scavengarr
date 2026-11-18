@@ -533,6 +533,26 @@ class TestProbeWindowKeepsKnownStreams:
 
         assert [video(uc, s) for s in streams] == ["https://cdn.example/2.mp4"]
 
+    async def test_a_dead_first_two_do_not_hide_the_third(self) -> None:
+        """The cap must not discard a hoster's fallback for good: two dead
+        links free the slots for its third (2026-11-18 PR review)."""
+        dead = ("https://voe.sx/e/d0", "https://voe.sx/e/d1")
+        alive = "https://voe.sx/e/d2"
+        resolutions = Resolutions(dead=dead, alive=(alive,))
+        uc = resolving_use_case(
+            [hoster_link(u) for u in (*dead, alive)],
+            resolutions.resolve,
+            config=make_config(
+                max_probe_count=10,
+                max_links_per_hoster=2,
+                resolve_target_count=0,
+            ),
+        )
+
+        streams = await uc.execute(make_request(), base_url="http://localhost:8080")
+
+        assert [video(uc, s) for s in streams] == ["https://cdn.example/d2.mp4"]
+
     async def test_a_resolved_link_survives_a_late_better_result(self) -> None:
         first = "https://voe.sx/e/first"
         better = [f"https://voe.sx/e/b{i}" for i in range(3)]

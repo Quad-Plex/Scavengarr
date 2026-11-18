@@ -2603,6 +2603,47 @@ class TestStubFiles:
         assert result.is_hls
 
     @respx.mock
+    async def test_a_playlist_body_without_the_suffix_is_not_a_stub(self) -> None:
+        url = "https://bigwarp.pro/stream/abc"
+        master = (
+            b"#EXTM3U\n"
+            b"#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\nv.m3u8\n"
+        )
+        respx.get(url).respond(
+            206,
+            content=master,
+            headers={"Content-Range": f"bytes 0-{len(master) - 1}/{len(master)}"},
+        )
+        async with httpx.AsyncClient() as client:
+            registry = HosterResolverRegistry(
+                resolvers=[_stub_resolver("bigwarp", ResolvedStream(url))],
+                http_client=client,
+                verify_playback=True,
+                min_stream_size=20 * 1024 * 1024,
+            )
+
+            result = await registry.resolve(self._URL)
+
+        assert result is not None
+        assert result.size_bytes is None
+
+    @respx.mock
+    async def test_a_stub_does_not_count_against_the_breaker(self) -> None:
+        """The hoster answered; the file is junk, not a resolver failure."""
+        respx.get(self._VIDEO).respond(
+            206,
+            content=b"\x00\x00\x00\x18ftypmp42",
+            headers={"Content-Range": "bytes 0-4095/1033738"},
+        )
+        breaker = PluginCircuitBreaker(failure_threshold=1)
+        async with httpx.AsyncClient() as client:
+            registry = self._registry(client, circuit_breaker=breaker)
+
+            assert await registry.resolve(self._URL) is None
+
+        assert breaker.allow("bigwarp") is True
+
+    @respx.mock
     async def test_the_floor_off_keeps_a_small_file(self) -> None:
         respx.get(self._VIDEO).respond(
             206,

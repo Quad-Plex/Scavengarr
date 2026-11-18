@@ -107,6 +107,44 @@ class TestMovieDuration:
         assert movie_duration(b"") is None
         assert movie_duration(b"\x1aE\xdf\xa3" + bytes(60)) is None
 
+    @staticmethod
+    def _mvhd(version: int, timescale: int, duration: int) -> bytes:
+        if version == 0:
+            payload = (
+                bytes([0])
+                + bytes(3)
+                + bytes(8)
+                + struct.pack(">II", timescale, duration)
+                + bytes(80)
+            )
+        elif version == 1:
+            payload = (
+                bytes([1])
+                + bytes(3)
+                + bytes(16)
+                + struct.pack(">I", timescale)
+                + struct.pack(">Q", duration)
+                + bytes(80)
+            )
+        else:
+            payload = bytes([version]) + bytes(3) + bytes(100)
+        return box(b"mvhd", payload)
+
+    def test_the_unknown_duration_sentinel_names_none(self) -> None:
+        for version, duration in ((0, 0xFFFFFFFF), (1, 0xFFFFFFFFFFFFFFFF)):
+            head = FTYP + box(
+                b"moov", self._mvhd(version, timescale=1000, duration=duration)
+            )
+            assert movie_duration(head) is None
+
+    def test_a_zero_timescale_names_none(self) -> None:
+        head = FTYP + box(b"moov", self._mvhd(0, timescale=0, duration=141000))
+        assert movie_duration(head) is None
+
+    def test_an_unknown_version_names_none(self) -> None:
+        head = FTYP + box(b"moov", self._mvhd(2, timescale=1000, duration=141000))
+        assert movie_duration(head) is None
+
 
 class TestMoovOffset:
     def test_moov_after_the_media_data(self) -> None:

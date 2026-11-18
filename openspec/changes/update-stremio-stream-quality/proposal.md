@@ -1,3 +1,5 @@
+# Change: Measure bitrate and keep the best streams
+
 ## Why
 
 Three problems in the streams Stremio gets, all seen on the production host with
@@ -40,9 +42,9 @@ streams of the same quality and language.
   episode. An echoed embed page or a wrong-season result never suppresses the
   hoster's real stream.
 - **A stub floor.** `stremio.min_stream_size_mb` (default 20, `0` off) drops a
-  resolved MP4 below it and caches it dead like an unplayable stream; it does
-  not count against the resolver's circuit breaker. HLS has no size and is not
-  affected.
+  resolved file below it and caches it dead like an unplayable stream; it does
+  not count against the resolver's circuit breaker. A playlist body has no
+  size, and the content-type probe is not checked.
 - **Unchanged defaults.** Quality still ranks below language by default
   (`quality_multiplier: 10`); a deployment that wants `1080p` above a German
   `720p` sets `quality_multiplier: 1000` (about 10,000 per quality step).

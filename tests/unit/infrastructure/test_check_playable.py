@@ -344,6 +344,31 @@ class TestMeasurement:
         )
 
     @respx.mock
+    async def test_a_playlist_body_without_the_suffix_is_a_playlist(self) -> None:
+        # A resolver may guess is_hls from the URL; the body decides. Its
+        # range answer sizes the playlist, not a video (2026-11-18 review)
+        url = "https://cdn.example.com/stream/abc"
+        master = (
+            b"#EXTM3U\n"
+            b"#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\nv.m3u8\n"
+        )
+        respx.get(url).respond(
+            206,
+            content=master,
+            headers={"Content-Range": f"bytes 0-{len(master) - 1}/{len(master)}"},
+        )
+
+        check = await _measure(ResolvedStream(url))
+
+        assert check == PlaybackCheck(
+            playable=True,
+            width=1920,
+            height=1080,
+            size_bytes=None,
+            bitrate_bps=5_000_000,
+        )
+
+    @respx.mock
     async def test_a_quoted_codec_list_is_one_attribute(self) -> None:
         master = (
             b"#EXTM3U\n"

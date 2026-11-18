@@ -308,13 +308,16 @@ async def check_playable(
     answer = await _first_bytes(
         http_client, stream.video_url, headers, _PLAYBACK_CHECK_TIMEOUT_S
     )
+    # A body that starts like a playlist is one, whatever the resolver
+    # guessed from the URL: its range answer sizes the playlist, not a video
+    playlist = answer.head.startswith(b"#EXTM3U")
     if answer.status >= 400:
         reason = f"status {answer.status}"
     elif answer.is_html:
         reason = "html"
-    elif stream.is_hls and not answer.head.startswith(b"#EXTM3U"):
+    elif stream.is_hls and not playlist:
         reason = "no playlist"
-    elif stream.is_hls:
+    elif playlist:
         variant = _best_variant(answer.head)
         # A playlist's range answer sizes the playlist, not the video
         return PlaybackCheck(

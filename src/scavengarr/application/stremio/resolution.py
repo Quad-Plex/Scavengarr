@@ -97,14 +97,15 @@ class HosterResolution:
         return sum(not task.done() for task in self._tasks.values())
 
     def update(self, ranked: list[RankedStream]) -> None:
-        """Take a new ranking (more results) and start what is due.
+        """Take a new ranking (more results, or links that turned out dead)
+        and start what is due.
 
-        New results only push streams down. A resolution that already gave a
-        video stays in the list even when it leaves the top *limit*: it is
-        part of the answer, and a better-labelled newcomer must not displace
-        it before the newcomer resolved (code review, 2026-11-18). Any other
-        stream that leaves the top is cancelled, so the answer does not wait
-        for it and its slot frees.
+        A resolution that already gave a video stays in the list even when
+        it leaves the top *limit*: it is part of the answer, and a
+        better-labelled newcomer must not displace it before the newcomer
+        resolved (code review, 2026-11-18). A dead link is not passed in.
+        Any other stream that leaves the top is cancelled, so the answer
+        does not wait for it and its slot frees.
         """
         window = ranked[: self._limit]
         present = {stream.url for stream in window}
@@ -135,6 +136,15 @@ class HosterResolution:
             and not task.cancelled()
             and (resolved := task.result()) is not None
             and is_direct_video_url(resolved, url)
+        )
+
+    def dead_urls(self) -> frozenset[str]:
+        """The URLs whose resolution ended without a stream; they must not
+        consume their hoster's links in the probe window."""
+        return frozenset(
+            url
+            for url, task in self._tasks.items()
+            if task.done() and not task.cancelled() and task.result() is None
         )
 
     def pending(self) -> bool:
@@ -307,8 +317,14 @@ class ResolveFlow:
             cached = self._cached_resolutions(ranked, cached_fn)
             if any(is_direct_video_url(r, ranked[i].url) for i, r in cached.items()):
                 exempt = frozenset(ranked[i].url for i in cached)
+                dead = frozenset(
+                    s.url for s in ranked if cached_fn(s.url) == (True, None)
+                )
                 window = cap_links_per_hoster(
-                    ranked, self._max_links_per_hoster, exempt=exempt
+                    ranked,
+                    self._max_links_per_hoster,
+                    exempt=exempt,
+                    dead=dead,
                 )
                 window = self._with_exempt(
                     window[: self._max_probe_count], ranked, exempt
@@ -485,7 +501,7 @@ class ResolveFlow:
             claim=PageClaim("background" if background else "capture", deadline),
         )
         target = 0 if background else self._resolve_target
-        ranked: list[RankedStream] = []
+        full: list[RankedStream] = []
         seen = 0
         reason = "deadline"
         phase = "background_resolve" if background else "resolve"
@@ -503,24 +519,26 @@ class ResolveFlow:
                         # per batch scored every stream again (10 ms per
                         # request on x86 for 200). The stable merge keeps the
                         # full sort's order
-                        ranked = list(
+                        full = list(
                             heapq.merge(
-                                ranked,
+                                full,
                                 await self._rank(new, plugin_languages),
                                 key=lambda s: -s.rank_score,
                             )
                         )
-                        # A site that lists dozens of links for the same hosters
-                        # must not fill the probe window with them (see
-                        # ``cap_links_per_hoster``); a stream that already
-                        # resolved stays, whatever new result ranks above it
-                        ranked = cap_links_per_hoster(
-                            ranked,
-                            self._max_links_per_hoster,
-                            exempt=resolution.video_urls(),
-                        )
-                        resolution.update(ranked)
-                        continue
+                    # A site that lists dozens of links for the same hosters
+                    # must not fill the probe window with them (see
+                    # ``cap_links_per_hoster``). Rebuilt on every wake, so a
+                    # hoster whose first links turned out dead reaches its
+                    # next one, and a stream that already resolved stays
+                    # whatever new result ranks above it.
+                    window = cap_links_per_hoster(
+                        full,
+                        self._max_links_per_hoster,
+                        exempt=resolution.video_urls(),
+                        dead=resolution.dead_urls(),
+                    )
+                    resolution.update(window)
                     if target > 0 and resolution.videos() >= target:
                         reason = "target"
                         break

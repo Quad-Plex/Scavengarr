@@ -87,15 +87,15 @@ The registry SHALL stamp a resolved stream's hoster with the name of the resolve
 - **THEN** both are kept for their own episode labels
 
 ### Requirement: Stub Files Are Dropped
-An MP4 file whose measured total is below `stremio.min_stream_size_mb` (default 20, `0` disables) SHALL be dropped and cached dead like an unplayable stream, SHALL log `hoster_resolve_too_small`, and SHALL NOT count against the resolver's circuit breaker. HLS streams and files without a measured total SHALL NOT be dropped.
+A resolved file whose measured total is below `stremio.min_stream_size_mb` (default 20, `0` disables) SHALL be dropped and cached dead like an unplayable stream, SHALL log `hoster_resolve_too_small`, and SHALL NOT count against the resolver's circuit breaker. A playlist body, a content-type probe and a run with `stremio.verify_streams` off SHALL NOT be dropped by the floor.
 
 #### Scenario: A 1 MB placeholder
 - **WHEN** a resolver answers a 1 033 738-byte MP4 for a feature film and the floor is 20
 - **THEN** the stream is left out of the answer and the link is cached dead
 
-#### Scenario: HLS
-- **WHEN** a resolved HLS stream carries no size
-- **THEN** the floor does not apply
+#### Scenario: Playlist body
+- **WHEN** a resolved file's first bytes start with `#EXTM3U` and the URL has no `.m3u8` suffix
+- **THEN** it is treated as a playlist (no size) and the floor does not apply
 
 #### Scenario: Floor off
 - **WHEN** `stremio.min_stream_size_mb` is 0

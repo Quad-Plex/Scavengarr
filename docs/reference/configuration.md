@@ -169,7 +169,7 @@ Unprefixed `CACHE_*` variables are not read.
 | `SCAVENGARR_STREMIO_MAX_PLUGINS_SCORED` | int | `5` | Top-N plugins when scoring is active. |
 | `SCAVENGARR_STREMIO_MAX_PROBE_COUNT` | int | `50` | Max streams to resolve at stream time (top-ranked first). |
 | `SCAVENGARR_STREMIO_MAX_RESULTS_PER_PLUGIN` | int | `100` | Max results per plugin in Stremio search. Limits pagination to reduce response time. Torznab uses the plugin default (1000). |
-| `SCAVENGARR_STREMIO_MIN_STREAM_SIZE_MB` | int | `20` | A resolved MP4 file smaller than this is dropped as a stub (an ad or a placeholder, not the film): the playback check measured its size. HLS streams have no size to check, and 0 turns the floor off. |
+| `SCAVENGARR_STREMIO_MIN_STREAM_SIZE_MB` | int | `20` | A resolved file smaller than this is dropped as a stub (an ad or a placeholder, not the film): the playback check measured its size. A playlist has no size, the content-type probe is not checked, and 0 turns the floor off. |
 | `SCAVENGARR_STREMIO_PLUGIN_HEALTH_INTERVAL_SECONDS` | float | `1800.0` | How often every Stremio plugin's site is checked (HEAD on its domains); searches skip plugins whose site did not answer (twice, 30 s apart), and those are checked again 5 minutes later, then at doubling pauses up to this interval. 0 turns the check off. |
 | `SCAVENGARR_STREMIO_PLUGIN_TIMEOUT_SECONDS` | float | `30.0` | Each plugin search, from the moment the plugin holds a concurrency slot; also the request's answer budget unless answer_budget_seconds is set. A plugin past it is cut; its earlier results stay. |
 | `SCAVENGARR_STREMIO_PROBE_CONCURRENCY` | int | `10` | Max parallel hoster resolutions at stream time. |
