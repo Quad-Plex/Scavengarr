@@ -2538,9 +2538,7 @@ class TestStubFiles:
 
     def _registry(self, client: httpx.AsyncClient, **kwargs: Any):
         return HosterResolverRegistry(
-            resolvers=[
-                _stub_resolver("bigwarp", ResolvedStream(self._VIDEO))
-            ],
+            resolvers=[_stub_resolver("bigwarp", ResolvedStream(self._VIDEO))],
             http_client=client,
             verify_playback=True,
             min_stream_size=20 * 1024 * 1024,
@@ -2583,9 +2581,7 @@ class TestStubFiles:
             b"#EXTM3U\n"
             b"#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\nv.m3u8\n"
         )
-        respx.get("https://bigwarp.pro/hls/master.m3u8").respond(
-            200, content=master
-        )
+        respx.get("https://bigwarp.pro/hls/master.m3u8").respond(200, content=master)
         async with httpx.AsyncClient() as client:
             registry = HosterResolverRegistry(
                 resolvers=[
@@ -2605,6 +2601,36 @@ class TestStubFiles:
 
         assert result is not None
         assert result.is_hls
+
+    @respx.mock
+    async def test_the_floor_off_keeps_a_small_file(self) -> None:
+        respx.get(self._VIDEO).respond(
+            206,
+            content=b"\x00\x00\x00\x18ftypmp42",
+            headers={"Content-Range": "bytes 0-4095/1033738"},
+        )
+        async with httpx.AsyncClient() as client:
+            registry = HosterResolverRegistry(
+                resolvers=[_stub_resolver("bigwarp", ResolvedStream(self._VIDEO))],
+                http_client=client,
+                verify_playback=True,
+                min_stream_size=0,
+            )
+
+            result = await registry.resolve(self._URL)
+
+        assert result is not None
+
+    @respx.mock
+    async def test_an_unknown_size_keeps_the_file(self) -> None:
+        respx.get(self._VIDEO).respond(200, content=b"\x00\x00\x00\x18ftypmp42")
+        async with httpx.AsyncClient() as client:
+            registry = self._registry(client)
+
+            result = await registry.resolve(self._URL)
+
+        assert result is not None
+        assert result.size_bytes is None
 
 
 class TestStateExport:

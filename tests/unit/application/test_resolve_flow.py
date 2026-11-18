@@ -512,6 +512,70 @@ class TestProbeWindow:
         assert resolutions.calls == []
 
 
+class TestProbeWindowKeepsKnownStreams:
+    """The per-hoster cap must not drop a link the resolver already knows
+    works (2026-11-18 code review): a cached-live third link, and a stream
+    that resolved before a better-labelled newcomer arrived."""
+
+    async def test_a_cached_live_third_link_survives_the_cap(self) -> None:
+        links = [hoster_link(f"https://voe.sx/e/{i}") for i in range(4)]
+        third = "https://voe.sx/e/2"
+        resolutions = Resolutions(alive=(third,))
+        uc = cached_titles(
+            {"tt1234567": links},
+            resolutions,
+            max_probe_count=10,
+            max_links_per_hoster=2,
+            resolve_target_count=0,
+        )
+
+        streams = await uc.execute(make_request(), base_url="http://localhost:8080")
+
+        assert [video(uc, s) for s in streams] == ["https://cdn.example/2.mp4"]
+
+    async def test_a_resolved_link_survives_a_late_better_result(self) -> None:
+        first = "https://voe.sx/e/first"
+        better = [f"https://voe.sx/e/b{i}" for i in range(3)]
+        resolutions = Resolutions(alive=(first,), dead=tuple(better))
+        cache = memory_cache()
+        sites = {
+            "first": fake_site(
+                [
+                    make_search_result(
+                        title="Iron Man",
+                        release_name="Iron.Man.2008.German.720p.WEB",
+                        download_links=[{"url": first, "quality": "720p"}],
+                    )
+                ]
+            ),
+            "second": fake_site(
+                [
+                    make_search_result(
+                        title="Iron Man",
+                        release_name="Iron.Man.2008.German.1080p.BluRay",
+                        download_links=[{"url": u, "quality": "1080p"}],
+                    )
+                    for u in better
+                ],
+                delay=0.3,
+            ),
+        }
+        uc = answering_use_case(
+            sites,
+            cache,
+            resolutions,
+            max_probe_count=2,
+            max_links_per_hoster=2,
+            resolve_target_count=0,
+            plugin_timeout_seconds=2.0,
+            stream_deadline_seconds=3.0,
+        )
+
+        streams = await uc.execute(make_request(), base_url="http://localhost:8080")
+
+        assert [video(uc, s) for s in streams] == ["https://cdn.example/first.mp4"]
+
+
 def _of(plugin: str, link: str) -> SearchResult:
     result = hit(link)
     result.metadata["source_plugin"] = plugin

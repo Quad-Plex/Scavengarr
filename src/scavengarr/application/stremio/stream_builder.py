@@ -122,7 +122,7 @@ def format_stream(
         elif year and not ranked.title:
             title = f"{title} ({year})"
     details = [ranked.language.label] if ranked.language else []
-    if ranked.bitrate_bps:
+    if ranked.bitrate_bps and ranked.bitrate_bps >= 100_000:
         details.append(f"{ranked.bitrate_bps / 1_000_000:.1f} Mbps")
     if ranked.size:
         details.append(ranked.size)
@@ -221,7 +221,10 @@ def deduplicate_by_hoster(streams: list[RankedStream]) -> list[RankedStream]:
 
 
 def cap_links_per_hoster(
-    streams: list[RankedStream], per_hoster: int
+    streams: list[RankedStream],
+    per_hoster: int,
+    *,
+    exempt: frozenset[str] = frozenset(),
 ) -> list[RankedStream]:
     """Keep each hoster and language's best *per_hoster* streams, best first.
 
@@ -232,6 +235,10 @@ def cap_links_per_hoster(
     ``HD`` (720p) guesses never resolved, so the answer showed only 720p
     (2026-11-17, Harry Potter). The capped list stays in rank order, so the
     probe window holds each hoster's best links and the other hosters' too.
+
+    *exempt* URLs are always kept and do not count against their hoster: a
+    link whose stream already resolved (or is cached alive) must not be
+    dropped by a better-labelled newcomer (code review, 2026-11-18).
     ``per_hoster <= 0`` keeps every stream; streams without hoster name are
     always kept (no cap key).
     """
@@ -241,7 +248,7 @@ def cap_links_per_hoster(
     result: list[RankedStream] = []
     for s in streams:
         key = hoster_key(s)
-        if key is None:
+        if key is None or s.url in exempt:
             result.append(s)
         elif counts.get(key, 0) < per_hoster:
             counts[key] = counts.get(key, 0) + 1

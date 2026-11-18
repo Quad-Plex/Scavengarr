@@ -99,11 +99,22 @@ class HosterResolution:
     def update(self, ranked: list[RankedStream]) -> None:
         """Take a new ranking (more results) and start what is due.
 
-        New results only push streams down: a resolution whose stream left
-        the top *limit* can no longer be part of the answer and is
-        cancelled, so the answer does not wait for it and its slot frees.
+        New results only push streams down. A resolution that already gave a
+        video stays in the list even when it leaves the top *limit*: it is
+        part of the answer, and a better-labelled newcomer must not displace
+        it before the newcomer resolved (code review, 2026-11-18). Any other
+        stream that leaves the top is cancelled, so the answer does not wait
+        for it and its slot frees.
         """
-        self._ranked = ranked[: self._limit]
+        window = ranked[: self._limit]
+        present = {stream.url for stream in window}
+        known = self.video_urls()
+        window += [
+            stream
+            for stream in ranked
+            if stream.url in known and stream.url not in present
+        ]
+        self._ranked = sorted(window, key=lambda s: -s.rank_score)
         considered = {stream.url for stream in self._ranked}
         for url, task in self._tasks.items():
             if url not in considered:
@@ -113,6 +124,18 @@ class HosterResolution:
             groups.setdefault(hoster_key(stream) or stream.url, []).append(i)
         self._hosters = list(groups.values())
         self._start_due()
+
+    def video_urls(self) -> frozenset[str]:
+        """The URLs whose resolution is a playable video, the streams a new
+        result must not push out of the probe window."""
+        return frozenset(
+            url
+            for url, task in self._tasks.items()
+            if task.done()
+            and not task.cancelled()
+            and (resolved := task.result()) is not None
+            and is_direct_video_url(resolved, url)
+        )
 
     def pending(self) -> bool:
         """Whether a resolution runs or is due (the due ones start)."""
@@ -279,17 +302,25 @@ class ResolveFlow:
         cached_fn = self._cached_resolution_fn
         if from_cache and cached_fn is not None:
             ranked = await self._rank(progress.results, plugin_languages)
-            ranked = cap_links_per_hoster(ranked, self._max_links_per_hoster)
-            ranked = ranked[: self._max_probe_count]
+            # Read the cached outcomes before the cap: a hoster's cached-live
+            # link may rank below its first two and must not be lost
             cached = self._cached_resolutions(ranked, cached_fn)
             if any(is_direct_video_url(r, ranked[i].url) for i, r in cached.items()):
+                exempt = frozenset(ranked[i].url for i in cached)
+                window = cap_links_per_hoster(
+                    ranked, self._max_links_per_hoster, exempt=exempt
+                )
+                window = self._with_exempt(
+                    window[: self._max_probe_count], ranked, exempt
+                )
+                cached = self._reindex(cached, ranked, window)
                 log.info("stremio_resolve_from_cache", resolved=len(cached))
                 self._telemetry.count("stremio_phase", "cached", phase="resolve")
                 if any(not cached_fn(s.url)[0] for s in ranked):
                     self.resolve_in_background(
                         key, progress, plugin_languages, resolve_fn
                     )
-                return ranked, cached
+                return window, cached
         return await self._resolve_as_results_arrive(
             progress,
             plugin_languages,
@@ -386,6 +417,39 @@ class ResolveFlow:
                     break
         return found
 
+    @staticmethod
+    def _with_exempt(
+        window: list[RankedStream],
+        ranked: list[RankedStream],
+        exempt: frozenset[str],
+    ) -> list[RankedStream]:
+        """*window* with every exempt stream of *ranked* that it lacks, in
+        rank order: the probe window's truncation must not drop a stream the
+        registry already knows works."""
+        present = {stream.url for stream in window}
+        extra = [
+            stream
+            for stream in ranked
+            if stream.url in exempt and stream.url not in present
+        ]
+        if not extra:
+            return window
+        return sorted([*window, *extra], key=lambda s: -s.rank_score)
+
+    @staticmethod
+    def _reindex(
+        cached: dict[int, ResolvedStream],
+        ranked: list[RankedStream],
+        window: list[RankedStream],
+    ) -> dict[int, ResolvedStream]:
+        """*cached* (indexed into *ranked*) indexed into *window* instead."""
+        position = {stream.url: i for i, stream in enumerate(window)}
+        return {
+            position[ranked[old].url]: resolved
+            for old, resolved in cached.items()
+            if ranked[old].url in position
+        }
+
     async def _resolve_as_results_arrive(
         self,
         progress: SearchProgress,
@@ -448,9 +512,12 @@ class ResolveFlow:
                         )
                         # A site that lists dozens of links for the same hosters
                         # must not fill the probe window with them (see
-                        # ``cap_links_per_hoster``)
+                        # ``cap_links_per_hoster``); a stream that already
+                        # resolved stays, whatever new result ranks above it
                         ranked = cap_links_per_hoster(
-                            ranked, self._max_links_per_hoster
+                            ranked,
+                            self._max_links_per_hoster,
+                            exempt=resolution.video_urls(),
                         )
                         resolution.update(ranked)
                         continue

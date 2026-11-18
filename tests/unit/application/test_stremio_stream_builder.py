@@ -420,9 +420,7 @@ class TestCapLinksPerHoster:
         hdfilme's unlabelled 1080p de-ranked behind movie4k's 720p guesses
         and never resolved (2026-11-17)."""
         flood = [
-            RankedStream(
-                url=f"https://voe.sx/e/{i}", hoster="voe", rank_score=100 - i
-            )
+            RankedStream(url=f"https://voe.sx/e/{i}", hoster="voe", rank_score=100 - i)
             for i in range(40)
         ]
         other = RankedStream(

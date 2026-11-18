@@ -1,7 +1,7 @@
 """Stream ranking and sorting for Stremio addon.
 
-Scores streams by language preference, quality, and hoster reliability.
-All weights are configurable via StremioConfig.
+Scores streams by quality, language preference, measured bitrate, and hoster
+reliability. All weights are configurable via StremioConfig.
 """
 
 from __future__ import annotations
@@ -11,28 +11,24 @@ from dataclasses import replace
 from scavengarr.domain.entities.stremio import RankedStream
 from scavengarr.infrastructure.config.schema import StremioConfig
 
-# The most points a stream's bitrate adds: one per Mbps, capped below the
-# smallest language gap (1000 - 500 for de/de-sub), so a high bitrate never
-# outranks a better language of the same quality
-_MAX_BITRATE_POINTS = 99
-
 
 class StreamSorter:
     """Ranking: Quality (best first), then Language (German first), then the
     measured bitrate, then the hoster bonus.
 
-    All weights come from StremioConfig — no hardcoded values.
     Score formula: language_score + (quality.value * quality_multiplier)
     + bitrate_points + hoster_bonus
 
     ``quality_multiplier`` decides whether quality or language dominates: at
     the deployment's 1000 one quality step is 10,000, above the widest
     language gap (1000 - 100), so every 1080p stream outranks every 720p one
-    and language breaks the tie within a class (2026-11-17). The bitrate
-    adds at most 99 points per Mbps, so it cannot outrank language, and it
-    settles streams of the same quality and language. With the defaults
-    (multiplier 10) language dominates over quality: German Dub 720p
-    (1000+400=1400) ranks higher than English Sub 1080p (200+500=700).
+    and language breaks the tie within a class (2026-11-17). The bitrate adds
+    one point per Mbps, capped below the smallest gap between two language
+    scores and below one quality step, so it settles streams of the same
+    quality and language without outranking either. With the defaults
+    (multiplier 10, language scores 1000/500/200/150) language dominates over
+    quality: German Dub 720p (1000+400=1400) ranks higher than English Sub
+    1080p (200+500=700).
     """
 
     def __init__(self, config: StremioConfig) -> None:
@@ -40,6 +36,17 @@ class StreamSorter:
         self._default_language_score = config.default_language_score
         self._quality_multiplier = config.quality_multiplier
         self._hoster_scores = config.hoster_scores
+        # One point per Mbps, but never enough to outrank a better language
+        # (the smallest gap between two language scores) or a better quality
+        # (one quality step). With the deployed scores that is 49 points.
+        languages = sorted(
+            {*config.language_scores.values(), config.default_language_score}
+        )
+        gaps = [b - a for a, b in zip(languages, languages[1:])]
+        margin = min(gaps, default=10 * config.quality_multiplier)
+        self._max_bitrate_points = max(
+            0, min(margin, 10 * config.quality_multiplier) - 1
+        )
 
     def rank(self, stream: RankedStream) -> int:
         """Calculate ranking score for a single stream."""
@@ -52,7 +59,7 @@ class StreamSorter:
         )
         quality_score = stream.quality.value * self._quality_multiplier
         bitrate_score = min(
-            (stream.bitrate_bps or 0) // 1_000_000, _MAX_BITRATE_POINTS
+            (stream.bitrate_bps or 0) // 1_000_000, self._max_bitrate_points
         )
         hoster_bonus = self._hoster_scores.get(stream.hoster.lower(), 0)
         return lang_score + quality_score + bitrate_score + hoster_bonus

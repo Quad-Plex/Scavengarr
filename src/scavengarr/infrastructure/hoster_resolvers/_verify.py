@@ -183,15 +183,19 @@ class _Variant:
 
 def _variants(head: bytes) -> list[_Variant]:
     """The variants a master playlist's ``#EXT-X-STREAM-INF`` lines name
-    with a complete ``RESOLUTION``; an attribute the sniff cut is ignored."""
+    with a complete ``RESOLUTION``; a line the sniff cut is ignored."""
     variants: list[_Variant] = []
-    for line in _STREAM_INF_RE.findall(head):
+    for match in _STREAM_INF_RE.finditer(head):
+        # The sniff may end inside the last line: its attributes are cut
+        if match.end() == len(head) and not head.endswith(b"\n"):
+            continue
+        # A CRLF playlist leaves the carriage return in the group
+        line = match.group(1).rstrip(b"\r")
         attributes = {
-            name: value.strip(b'"')
-            for name, value in _ATTRIBUTE_RE.findall(line)
+            name: value.strip(b'"') for name, value in _ATTRIBUTE_RE.findall(line)
         }
-        match = _RESOLUTION_RE.fullmatch(attributes.get(b"RESOLUTION", b""))
-        if match is None:
+        resolution = _RESOLUTION_RE.fullmatch(attributes.get(b"RESOLUTION", b""))
+        if resolution is None:
             continue
         # AVERAGE-BANDWIDTH is the better figure when the playlist has it
         bitrate = attributes.get(b"AVERAGE-BANDWIDTH") or attributes.get(
@@ -199,8 +203,8 @@ def _variants(head: bytes) -> list[_Variant]:
         )
         variants.append(
             _Variant(
-                int(match[1]),
-                int(match[2]),
+                int(resolution[1]),
+                int(resolution[2]),
                 int(bitrate) if bitrate.isdigit() else None,
             )
         )
@@ -330,9 +334,7 @@ async def check_playable(
             height=video.height,
             size_bytes=total,
             bitrate_bps=(
-                round(total * 8 / video.seconds)
-                if total and video.seconds
-                else None
+                round(total * 8 / video.seconds) if total and video.seconds else None
             ),
         )
     log.info(

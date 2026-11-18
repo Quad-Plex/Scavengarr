@@ -648,17 +648,19 @@ class HosterResolverRegistry:
                 return "unplayable", None, True
             if (
                 self._min_stream_size
+                and not result.is_hls
+                and not _is_playlist_url(result.video_url)
                 and check.size_bytes is not None
                 and check.size_bytes < self._min_stream_size
             ):
-                # The link plays, but it is an ad or a placeholder
+                # The link plays, but it is an ad or a placeholder. Not a
+                # resolver failure: the hoster answered, the file is junk
                 log.warning(
                     "hoster_resolve_too_small",
                     hoster=hoster_name,
                     size_bytes=check.size_bytes,
                     url=url,
                 )
-                self._record(resolver, failed=True)
                 return "too_small", None, True
             result = _measured(result, check)
         if (
@@ -1203,7 +1205,6 @@ class HosterResolverRegistry:
                 )
                 return ResolvedStream(
                     video_url=str(resp.url),
-                    hoster=hoster_name,
                     quality=StreamQuality.UNKNOWN,
                 )
 
@@ -1215,7 +1216,6 @@ class HosterResolverRegistry:
                 )
                 return ResolvedStream(
                     video_url=str(resp.url),
-                    hoster=hoster_name,
                     is_hls=True,
                     quality=StreamQuality.UNKNOWN,
                 )

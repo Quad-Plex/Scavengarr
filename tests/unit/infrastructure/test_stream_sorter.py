@@ -239,7 +239,7 @@ class TestCustomConfig:
         assert result[0].rank_score == 51_008
 
     def test_a_bitrate_does_not_outrank_a_better_language(self) -> None:
-        """One Mbps is one point, capped below the 500-point de/de-sub gap."""
+        """One Mbps is one point, capped below the smallest language gap."""
         sorter = StreamSorter(StremioConfig(quality_multiplier=1000))
         de_720 = _stream(
             quality=StreamQuality.HD_720P,
@@ -255,6 +255,25 @@ class TestCustomConfig:
         result = sorter.sort([en_720, de_720])
 
         assert result[0].language == GERMAN_DUB
+
+    def test_a_bitrate_does_not_outrank_the_tightest_language_gap(self) -> None:
+        """en-sub 200 vs en 150 is only 50: a 99-point cap would break it."""
+        sorter = StreamSorter(StremioConfig(quality_multiplier=1000))
+        sub = _stream(
+            quality=StreamQuality.HD_1080P,
+            language=ENGLISH_SUB,
+            bitrate_bps=900_000,
+        )
+        dub = _stream(
+            quality=StreamQuality.HD_1080P,
+            language=ENGLISH_DUB,
+            bitrate_bps=51_000_000,
+        )
+
+        result = sorter.sort([dub, sub])
+
+        assert result[0].language == ENGLISH_SUB
+        assert sorter._max_bitrate_points == 49
 
 
 def test_sort_keeps_every_field() -> None:

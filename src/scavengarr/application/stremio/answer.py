@@ -20,6 +20,7 @@ from scavengarr.application.stremio.stream_builder import (
     build_cache_link,
     build_stream_from_resolved,
     hoster_key,
+    is_direct_video_url,
     stream_link_id,
 )
 from scavengarr.domain.entities.stremio import (
@@ -125,25 +126,33 @@ def with_measurements(
 def _deduplicate(
     ranked: list[RankedStream], resolved: dict[int, ResolvedStream]
 ) -> tuple[list[RankedStream], dict[int, ResolvedStream]]:
-    """*ranked* with one resolved stream per hoster and language (the first,
-    best), and the resolutions by their new index.
+    """*ranked* with one playable stream per hoster, language and episode,
+    and the resolutions by their new index.
 
-    Only resolved streams are deduplicated: an unresolved link is no stream
-    of its hoster (``cache_and_proxy`` drops it), and the hoster's next link
-    may be the one that resolved. The input must already be sorted by rank.
-    Streams without a hoster name are always kept (no dedup key).
+    Only a resolved direct video is deduplicated: an unresolved link or an
+    echoed embed page is no stream of its hoster (``cache_and_proxy`` drops
+    it), and the hoster's next link may be the one that resolved. The
+    episode label is part of the key: a wrong-season result that outranks
+    the right one must not remove it (code review, 2026-11-18). The input
+    must already be sorted by rank. Streams without a hoster name are always
+    kept (no dedup key).
     """
     kept: list[RankedStream] = []
     resolutions: dict[int, ResolvedStream] = {}
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[object, ...]] = set()
     for old, stream in enumerate(ranked):
-        key = hoster_key(stream)
-        if key is not None and old in resolved:
+        base = hoster_key(stream)
+        resolution = resolved.get(old)
+        playable = resolution is not None and is_direct_video_url(
+            resolution, stream.url
+        )
+        if base is not None and playable:
+            key = (*base, stream.label_season, stream.label_episode)
             if key in seen:
                 continue
             seen.add(key)
-        if old in resolved:
-            resolutions[len(kept)] = resolved[old]
+        if resolution is not None:
+            resolutions[len(kept)] = resolution
         kept.append(stream)
     return kept, resolutions
 

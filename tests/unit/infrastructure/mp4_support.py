@@ -54,9 +54,7 @@ def mvhd(duration_s: float = 0.0, timescale: int = 1000, *, version: int = 0) ->
     return box(b"mvhd", bytes([version]) + bytes(3) + times + duration + bytes(80))
 
 
-def moov(
-    *tracks: bytes, duration_s: float = 0.0, timescale: int = 1000
-) -> bytes:
+def moov(*tracks: bytes, duration_s: float = 0.0, timescale: int = 1000) -> bytes:
     return box(
         b"moov",
         mvhd(duration_s, timescale) + b"".join(tracks),
